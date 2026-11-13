@@ -1,10 +1,14 @@
-// WRITE: de-noise the data/table section. DATA_LO = end of the last real function (0xD6704) + 1;
-// DATA_HI = 0xF6A24. (1) delete every function whose entry is in [DATA_LO,DATA_HI) — all spurious
-// (cmg5461 places zero functions above 0xD7000, highest real fn is 0xD6704); (2) clear every
-// mis-disassembled instruction there back to undefined; (3) label each code-referenced table base
+// WRITE: de-noise the data/table section. `auto DATA_HI` pins P = end of the last function that
+// starts with the frame prologue (the code/data boundary for any image; explicit `P DATA_HI`
+// also accepted). From P up: (1) delete every function that is neither a prologue function nor a
+// PROTECTED one — a call / tail-jump target of trusted code (see protectedFunctions; the
+// prologue-less leaf helpers above the last prologue function that RecoverCallTargets seeds);
+// (2) clear every other instruction back to undefined; (3) label each code-referenced table base
 // (same harvest as DataTableInventory: Ghidra refs from outside the section + a 4-aligned pointer
-// scan of 0x40000..DATA_LO). Does NOT impose data types — bases stay labeled untyped data.
-// Read the matching notes/data-tables.md §3. Close the GUI first (project lock). Re-runnable.
+// scan of 0x40000..P), never one that is code. Prints `DATA_LO=<end of last real fn, protected
+// included> CODE_HI=<P> DATA_HI=..` for the driver: DATA_LO starts the data section proper,
+// CODE_HI stays the recovery-window ceiling. Does NOT impose data types — bases stay labeled
+// untyped data. Close the GUI first (project lock). Re-runnable.
 //@category MK60
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
@@ -51,72 +55,105 @@ public class DataSectionClean extends GhidraScript {
         SymbolTable st = currentProgram.getSymbolTable();
         FunctionManager fm = currentProgram.getFunctionManager();
 
+        // P = the prologue pin: end of the last function that starts with the frame prologue.
+        // Everything from P up is cleaned (spurious functions deleted, instructions cleared,
+        // bases labelled) EXCEPT the protected islands: functions that are call / tail-jump
+        // targets of trusted code (RecoverCallTargets seeds them; prologue-less leaves such as
+        // `cmpnei; movi; lsli; ...; jmp r15` sit above the last prologue function on every
+        // MK60E5 image). DATA_LO, the start of the data section proper, is the end of the last
+        // real function — prologue or protected — and is what the driver pins; P is reported as
+        // CODE_HI, the ceiling of the recovery window (the tables between the islands must not
+        // be re-disassembled every round).
         String[] _a = getScriptArgs();
         Function last = null;
-        long DATA_LO, DATA_HI;
-        if (_a.length >= 2 && _a[0].equalsIgnoreCase("auto")) {  // auto-pin DATA_LO (any image)
+        long P, DATA_HI;
+        if (_a.length >= 2 && _a[0].equalsIgnoreCase("auto")) {  // auto-pin (any image)
             DATA_HI = Long.parseLong(_a[1],16);
-            DATA_LO = highestPrologueEnd(0x42000L, DATA_HI);
-            println("DataSectionClean[auto]: DATA_LO pinned to end of last prologue fn = " + Long.toHexString(DATA_LO));
-        } else if (_a.length >= 2) {    // explicit bounds, e.g. for a different image
-            DATA_LO = Long.parseLong(_a[0],16); DATA_HI = Long.parseLong(_a[1],16);
+            P = highestPrologueEnd(0x42000L, DATA_HI);
+            println("DataSectionClean[auto]: prologue pin (end of last prologue fn) = " + Long.toHexString(P));
+        } else if (_a.length >= 2) {    // explicit pin, e.g. for a different image
+            P = Long.parseLong(_a[0],16); DATA_HI = Long.parseLong(_a[1],16);
         } else {                        // default: DSCM90, end of last real fn (0xd6704)
             last = getFunctionContaining(toAddr(0xd6704L));
             if (last == null) last = getFunctionAt(toAddr(0xd6704L));
-            DATA_LO = (last != null) ? last.getBody().getMaxAddress().getOffset()+1 : 0xd6714L;
-            DATA_LO = (DATA_LO + 1) & ~1L;
+            P = (last != null) ? last.getBody().getMaxAddress().getOffset()+1 : 0xd6714L;
+            P = (P + 1) & ~1L;
             DATA_HI = 0xF6A24L;
         }
-        println("DATA_LO=" + Long.toHexString(DATA_LO) + " (last real fn " +
-                (last!=null?last.getName()+"@"+last.getEntryPoint():"?") + ")  DATA_HI=" + Long.toHexString(DATA_HI));
 
-        // --- harvest bases (same logic as DataTableInventory) ---
+        TreeMap<Long,Function> prot = protectedFunctions(P, DATA_HI);
+        long DATA_LO = P;
+        for (Function f : prot.values()) {
+            long end = (f.getBody().getMaxAddress().getOffset() + 2) & ~1L;
+            if (end > DATA_LO) { DATA_LO = end; last = f; }
+        }
+        println("DATA_LO=" + Long.toHexString(DATA_LO) + " CODE_HI=" + Long.toHexString(P) + " DATA_HI=" + Long.toHexString(DATA_HI)
+                + " (protected call-target fns above the pin: " + prot.size()
+                + (last != null ? ", last real fn " + last.getName() + "@" + last.getEntryPoint() : "") + ")");
+
+        // --- harvest bases (same logic as DataTableInventory), from the pin up; a reference
+        //     from a protected island counts as "from outside the section" ---
         TreeMap<Long,TreeSet<Long>> bases = new TreeMap<>();
         AddressIterator srcIt = rm.getReferenceSourceIterator(mem, true);
         while (srcIt.hasNext()) {
             Address from = srcIt.next(); long f = from.getOffset();
-            if (f >= DATA_LO && f < DATA_HI) continue;
+            if (f >= P && f < DATA_HI && !inProtected(prot, from)) continue;
             for (Reference r : rm.getReferencesFrom(from)) {
                 long t = r.getToAddress().getOffset();
-                if (t >= DATA_LO && t < DATA_HI) bases.computeIfAbsent(t,k->new TreeSet<>()).add(f);
+                if (t >= P && t < DATA_HI) bases.computeIfAbsent(t,k->new TreeSet<>()).add(f);
             }
         }
-        for (long a = (0x40000L+3)&~3L; a+4 <= DATA_LO; a += 4) {
+        for (long a = (0x40000L+3)&~3L; a+4 <= P; a += 4) {
             long v; try { v = mem.getInt(toAddr(a)) & 0xFFFFFFFFL; } catch (Exception e) { continue; }
-            if (v >= DATA_LO && v < DATA_HI) bases.computeIfAbsent(v,k->new TreeSet<>()).add(a);
+            if (v >= P && v < DATA_HI) bases.computeIfAbsent(v,k->new TreeSet<>()).add(a);
         }
 
-        // --- (1) delete spurious functions in range ---
+        // --- (1) delete spurious functions from the pin up (never a prologue or protected fn) ---
         ArrayList<Function> del = new ArrayList<>();
-        for (Function fn : fm.getFunctions(toAddr(DATA_LO), true)) {
+        for (Function fn : fm.getFunctions(toAddr(P), true)) {
             if (fn.getEntryPoint().getOffset() >= DATA_HI) break;
             if (isPrologue(mem, fn.getEntryPoint())) continue;   // real function: never delete
+            if (prot.containsKey(fn.getEntryPoint().getOffset())) continue;   // called from trusted code
             del.add(fn);
         }
         int fnDeleted = 0;
         for (Function fn : del) { try { removeFunction(fn); fnDeleted++; } catch (Exception ex) {} }
 
-        // --- (2) clear mis-disassembled instructions in range -> undefined ---
+        // --- (2) clear mis-disassembled instructions from the pin up -> undefined ---
         ArrayList<Address> insAddrs = new ArrayList<>();
         InstructionIterator ii = currentProgram.getListing().getInstructions(
-                new AddressSet(toAddr(DATA_LO), toAddr(DATA_HI-1)), true);
+                new AddressSet(toAddr(P), toAddr(DATA_HI-1)), true);
         while (ii.hasNext()) insAddrs.add(ii.next().getMinAddress());
         int insCleared = 0;
+        ArrayList<String> clearedRuns = new ArrayList<>(); long runLo = -1, runHi = -1;
         for (Address a : insAddrs) {
             Instruction in = getInstructionAt(a);
             if (in == null) continue;
             Function cf = getFunctionContaining(a);
-            if (cf != null && isPrologue(mem, cf.getEntryPoint())) continue;  // body of a real fn
+            if (cf != null && (isPrologue(mem, cf.getEntryPoint()) || prot.containsKey(cf.getEntryPoint().getOffset()))) continue;  // body of a real fn
+            long o = a.getOffset();
+            if (runLo >= 0 && o <= runHi + 2) runHi = in.getMaxAddress().getOffset();
+            else { if (runLo >= 0) clearedRuns.add(String.format("%x..%x", runLo, runHi)); runLo = o; runHi = in.getMaxAddress().getOffset(); }
             clearListing(a, in.getMaxAddress()); insCleared++;
         }
+        if (runLo >= 0) clearedRuns.add(String.format("%x..%x", runLo, runHi));
+        if (!clearedRuns.isEmpty()) println("DataSectionClean: cleared instruction runs (first " + Math.min(12, clearedRuns.size()) + " of " + clearedRuns.size() + "): "
+                + String.join(" ", clearedRuns.subList(0, Math.min(12, clearedRuns.size()))));
 
         // --- (3) label bases.  Priority for the PRIMARY label: an existing real cmg5461 data name
         //     > a KNOWN documented name > a generated tbl_* name. Generic auto-labels (FUN_/LAB_/
-        //     DAT_/SUB_/thunk) and any tbl_* from a previous run are dropped first. ---
-        int labels = 0;
+        //     DAT_/SUB_/thunk) and any tbl_* from a previous run are dropped first. A base that is
+        //     code (a protected island's entry, or inside its body) is never labelled a table; a
+        //     stale tbl_* there from an earlier run is removed. ---
+        int labels = 0, codeBases = 0;
         for (Map.Entry<Long,TreeSet<Long>> e : bases.entrySet()) {
             long base = e.getKey();
             Address ba = toAddr(base);
+            if (getInstructionContaining(ba) != null) {
+                codeBases++;
+                for (Symbol s : st.getSymbols(ba)) if (s.getSource()!=SourceType.DEFAULT && s.getName().startsWith("tbl_")) { try { s.delete(); } catch (Exception ex) {} }
+                continue;
+            }
             String cmgName = null;      // a pre-existing real (non-generic) name = cmg5461 data label
             for (Symbol s : st.getSymbols(ba)) {
                 if (s.getSource()==SourceType.DEFAULT) continue;
@@ -148,7 +185,63 @@ public class DataSectionClean extends GhidraScript {
             try { createLabel(ba, name, true, SourceType.USER_DEFINED); labels++; } catch (Exception ex) {}
         }
         println("DataSectionClean: functionsDeleted=" + fnDeleted + " instructionsCleared=" + insCleared +
-                " basesLabeled=" + labels + " totalBases=" + bases.size());
+                " basesLabeled=" + labels + " totalBases=" + bases.size() + " codeBasesSkipped=" + codeBases
+                + " protectedFns=" + prot.size());
+    }
+
+    // Functions at or above the pin P that trusted code calls or tail-jumps to, transitively:
+    // trusted = every function whose entry is in [0x42000, P), plus the protected ones. Edges
+    // are the instructions' call/jump flow references (RecoverCallTargets / RecoverFlowCode
+    // record them), with the `bsr` displacement and the `jsri`/`jmpi` pool slot decoded from
+    // the encoding as a fallback for an instruction that carries none.
+    private TreeMap<Long,Function> protectedFunctions(long P, long HI) {
+        Memory mem = currentProgram.getMemory();
+        Listing ls = currentProgram.getListing();
+        TreeMap<Long,Function> out = new TreeMap<>();
+        ArrayDeque<Function> work = new ArrayDeque<>();
+        HashSet<Long> seen = new HashSet<>();
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            long e = f.getEntryPoint().getOffset();
+            if (e >= 0x42000L && e < P) { work.add(f); seen.add(e); }
+        }
+        while (!work.isEmpty()) {
+            Function f = work.poll();
+            for (Instruction ins : ls.getInstructions(f.getBody(), true)) {
+                ArrayList<Address> targets = new ArrayList<>();
+                boolean flow = false;
+                for (Reference r : ins.getReferencesFrom()) {
+                    RefType rt = r.getReferenceType();
+                    if (rt.isCall() || rt.isJump()) { targets.add(r.getToAddress()); flow = true; }
+                }
+                if (!flow) {
+                    String m = ins.getMnemonicString();
+                    int w; try { w = mem.getShort(ins.getAddress()) & 0xFFFF; } catch (Exception ex) { continue; }
+                    try {
+                        if (m.equals("bsr") && w != 0xFFFF && w != 0xF800) {
+                            int disp = w & 0x7FF; if ((disp & 0x400) != 0) disp -= 0x800;
+                            targets.add(ins.getAddress().add(2 + (disp << 1)));
+                        } else if (m.equals("jsri") || m.equals("jmpi")) {
+                            Address slot = toAddr(((ins.getAddress().getOffset() + 2) & ~3L) + ((w & 0xFF) << 2));
+                            if (mem.contains(slot)) targets.add(toAddr((mem.getInt(slot) & 0xFFFFFFFFL) & ~1L));
+                        }
+                    } catch (Exception ex) {}
+                }
+                for (Address t : targets) {
+                    if (t == null) continue;
+                    long o = t.getOffset();
+                    if (o < P || o >= HI || getInstructionAt(t) == null) continue;
+                    Function g = getFunctionContaining(t);
+                    if (g == null || !seen.add(g.getEntryPoint().getOffset())) continue;
+                    out.put(g.getEntryPoint().getOffset(), g); work.add(g);
+                }
+            }
+        }
+        return out;
+    }
+
+    private boolean inProtected(TreeMap<Long,Function> prot, Address a) {
+        Map.Entry<Long,Function> e = prot.floorEntry(a.getOffset());
+        return e != null && e.getValue().getBody().contains(a);
     }
 
     // End (max body addr + 1, 2-byte aligned) of the highest function that opens with the

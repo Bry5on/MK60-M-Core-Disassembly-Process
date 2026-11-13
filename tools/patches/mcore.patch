@@ -67,6 +67,20 @@
  	r15 = inst_start + 2;
  
  	local dest:4 = *[ram]:4 disp8_label;
+@@ -291,11 +303,11 @@
+ }
+ :ld.b regZ, (regX, disp) is op15=1 & ld_size=0b01 & op12=0 & regZ & imm4 & regX [disp = imm4 << 0;] {
+ 	local EA:4 = regX + disp;
+-	regZ = *[ram]:1 EA;
++	regZ = zext(*[ram]:1 EA);
+ }
+ :ld.h regZ, (regX, disp) is op15=1 & ld_size=0b10 & op12=0 & regZ & imm4 & regX [disp = imm4 << 1;] {
+ 	local EA:4 = regX + disp;
+-	regZ = *[ram]:2 EA;
++	regZ = zext(*[ram]:2 EA);
+ }
+ 
+ define pcodeop illegal_instruction;
 @@ -426,6 +438,15 @@
  	regX = regX >> oimm5;
  }
@@ -83,18 +97,32 @@
  :mfcr regX, ctrlRegY is op9_15=0b0001000 & ctrlRegY & regX {
  	regX = ctrlRegY;
  }
-@@ -455,6 +476,11 @@
- 
- :mult regX, regY is op8_15=0b00000011 & regY & regX {
+@@ -457,6 +478,11 @@
  	regX = regX * regY;
-+}
-+
+ }
+ 
 +# mulsh / muls.h: 16x16 -> 32 signed multiply (binutils 0x6800, MULSH).
 +:mulsh regX, regY is op8_15=0b01101000 & regY & regX {
 +	regX = sext(regX:2) * sext(regY:2);
++}
++
+ :mvc regX is op4_15=0b000000000010 & regX {
+ 	regX = zext(C);
+ }
+@@ -512,11 +538,11 @@
+ }
+ :st.b regZ, (regX, disp) is op15=1 & ld_size=0b01 & op12=1 & regZ & imm4 & regX [disp = imm4 << 0;] {
+ 	local EA:4 = regX + disp;
+-	*[ram]:1 EA = regZ;
++	*[ram]:1 EA = regZ:1;
+ }
+ :st.h regZ, (regX, disp) is op15=1 & ld_size=0b10 & op12=1 & regZ & imm4 & regX [disp = imm4 << 1;] {
+ 	local EA:4 = regX + disp;
+-	*[ram]:2 EA = regZ;
++	*[ram]:2 EA = regZ:2;
  }
  
- :mvc regX is op4_15=0b000000000010 & regX {
+ :stm regX"-r15, (r0)" is op4_15=0b000000000111 & regX & regX_imm {
 @@ -614,8 +640,8 @@
  	C = c1 | c2;
  }

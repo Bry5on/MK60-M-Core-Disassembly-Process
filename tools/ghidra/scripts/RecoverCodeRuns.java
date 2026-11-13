@@ -69,6 +69,12 @@ public class RecoverCodeRuns extends GhidraScript {
             if (boundary && getFunctionAt(a) == null) { try { if (createFunction(a, null) != null) fns++; } catch (Exception e) {} }
         }
         println("RecoverCodeRuns: codeRuns=" + runs.size() + " disassembled=" + disasm + " newFunctions=" + fns);
+        if (!runs.isEmpty()) {   // which ones, so a run that re-appears every pass/round can be identified
+            StringBuilder sb = new StringBuilder("RecoverCodeRuns: runs:");
+            for (int i = 0; i < Math.min(12, runs.size()); i++) sb.append(String.format(" %x+%d", runs.get(i)[0], runs.get(i)[1]));
+            if (runs.size() > 12) sb.append(" ...");
+            println(sb.toString());
+        }
     }
 
     private boolean isCode(long start, long len) {

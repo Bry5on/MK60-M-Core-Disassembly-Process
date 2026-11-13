@@ -112,7 +112,7 @@ public class RecoverFlowCode extends GhidraScript {
 
         int errAfter = errorCount();
         println("RecoverFlowCode: seedsDisassembled=" + totalDisasm + " newFunctions=" + totalFns
-                + " flowRefsAdded=" + refsAdded + " errorBookmarks " + errBefore + " -> " + errAfter);
+                + " flowRefsAdded=" + refsAdded + " slotRefsAdded=" + slotRefsAdded + " errorBookmarks " + errBefore + " -> " + errAfter);
     }
 
     // PC-relative branch target from the 16-bit encoding: disp = bits[0..10] signed.
@@ -127,21 +127,31 @@ public class RecoverFlowCode extends GhidraScript {
         } catch (Exception e) { return null; }
     }
 
-    // Indirect jmpi/jsri: the pointer stored at the instruction's pool slot
-    // (its in-memory read/data reference target).
+    // Indirect jmpi/jsri: the pointer stored at the instruction's pool slot (its in-memory
+    // read/data reference target). Script-disassembled code often carries NO operand reference
+    // at all, so without one the slot is computed from the encoding — the M·CORE lrw/jsri/jmpi
+    // addressing mode: slot = ((PC + 2) & ~3) + (imm8 << 2) — and recorded as a READ reference
+    // (FixLiteralPools types the slot from it). A callee whose only caller is such a `jsri` had
+    // no reference anywhere and stayed `??` (RecoverCallTargets covers the same case image-wide).
     private Address indirectTarget(Instruction ins) {
         try {
             for (Reference r : ins.getReferencesFrom()) {
                 RefType rt = r.getReferenceType();
                 Address slot = r.getToAddress();
-                if ((rt.isRead() || rt.isData()) && slot != null && mem.contains(slot)) {
+                if ((rt.isRead() || rt.isData()) && !rt.isFlow() && slot != null && mem.contains(slot)) {
                     long v = (mem.getInt(slot) & 0xFFFFFFFFL) & ~1L;
                     return toAddr(v);
                 }
             }
+            byte[] b = ins.getBytes();
+            Address slot = toAddr(((ins.getAddress().getOffset() + 2) & ~3L) + ((b[1] & 0xFF) << 2));
+            if (!mem.contains(slot)) return null;
+            try { currentProgram.getReferenceManager().addMemoryReference(ins.getAddress(), slot, RefType.READ, SourceType.ANALYSIS, 0); slotRefsAdded++; } catch (Exception e) {}
+            return toAddr((mem.getInt(slot) & 0xFFFFFFFFL) & ~1L);
         } catch (Exception e) {}
         return null;
     }
+    private int slotRefsAdded = 0;
 
     // Trial-decode (no writes) from a: accept if a clean instruction stream reaches an
     // unconditional terminator (br/jmpi/jmp/rts) within 16 instrs, or 16 instrs decode

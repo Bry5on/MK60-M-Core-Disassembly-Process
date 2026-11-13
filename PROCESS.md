@@ -8,7 +8,9 @@ is a thin pointer to this file. Do the one-time toolchain setup in [`SETUP.md`](
 ## Why a raw import isn't enough
 
 The MK60E5 ECU runs a Motorola/Freescale **M·CORE** core (big-endian, fixed 16-bit instructions).
-Stock Ghidra has no M·CORE; `SETUP.md` builds a patched one. Even with it, M·CORE's SLEIGH models
+Stock Ghidra has no M·CORE; `SETUP.md` builds a patched one (`tools/patches/mcore.patch`, regenerated
+by `make_mcore_patch.py`: opcode/bitfield fixes, and the p-code width of `ld.b`/`ld.h`/`st.b`/`st.h`,
+which upstream emitted as 4-byte loads and stores). Even with it, M·CORE's SLEIGH models
 every branch (`bt/bf/br/bsr`) as a *computed* jump, so Ghidra's auto-analysis:
 
 - leaves branch-/jump-/pointer-reached code as raw `??` bytes,
@@ -29,12 +31,14 @@ The scripts here fix all of that. The boundaries that bound the work are found *
  (2) mcore_recover.sh   find_boundary.py (auto codeHI/dataHI)
                         →  FixLiteralPools
                         →  [RecoverRefCode · RecoverCodeRuns · RecoverPrologues · RecoverFlowCode ·
+                            RecoverCallTargets (image-wide) · RecoverTablePointers (data-section tables) ·
                             FixJumpTables · FixLiteralPools · FixResidual · RetraceBodies ·
                             FunctionizeOrphans] ×N
-                        →  DataSectionClean auto  (auto-pins dataLO = last real fn end → <prog>.bounds)
+                        →  DataSectionClean auto  (pins codeHI = last prologue fn end, dataLO = last
+                                                   real fn end incl. call-target islands → <prog>.bounds)
                         →  FixStorage2 → ClassifyData · ApplyDataTypes → ClearAnalysisBookmarks
-                        →  ScanMisdisasm · CountErr
-                        ] × rounds, until the last recovery pass adds nothing
+                        →  ScanMisdisasm · PtrTargets · CountErr
+                        ] × rounds, until a round starts with nothing to do
                         →  ReadOnlyFlash → AnalyzeSignatures  (params / return / stack locals, once, SIGS=0 skips)
  (3) mcore_port.sh      (optional) carry names over from an already-named reference project
                         (by signature, then by call-site / table-slot propagation from every match)
@@ -91,15 +95,22 @@ tools/ghidra/mcore_recover.sh <proj_dir> <name> <cpu_hex_path> [passes]
 
 One headless session runs the recovery loop (`passes` iterations, default 6) and then the finish
 chain. The finish chain can expose seeds the loop never saw (a newly typed pointer, a cleaned table
-edge), so the driver repeats that session — up to `ROUNDS` (env, default 4) — **until the last pass
-of a round creates no functions and reverts nothing**. It prints `round N: lastPassWork=…` after
-each round and `DONE: converged …` at the end; a `NOT converged` message means raise `ROUNDS` or
-`passes` (or just re-run — it resumes).
+edge), so the driver repeats that session — up to `ROUNDS` (env, default 4) — **until a round
+starts with nothing to do**: its first pass creates no functions and reverts nothing (and so does
+its last). A round that only *ends* clean is not enough — its own finish chain may have exposed
+more, which the next round's first pass would pick up; converging on the first pass means the
+project left behind is a fixpoint of loop + finish, so a re-run is a no-op (the cost is one extra
+round of a few seconds). It prints `round N: firstPassWork=… lastPassWork=…` after each round and
+`DONE: converged …` at the end; a `NOT converged` message means raise `ROUNDS` or `passes` (or just
+re-run — it resumes).
 
 ### How the boundaries are found — no hardcoded addresses
 
-The work is bounded by the code region `[codeLO, codeHI)` and the data section `[dataLO, dataHI)`,
-where `codeHI == dataLO`. The driver determines them for *any* image:
+The work is bounded by the code region `[codeLO, codeHI)` and the data section `[dataLO, dataHI)`.
+`codeHI` is the **prologue pin** — the ceiling of the recovery window — and `dataLO` the start of the
+data section proper; between them sit the few prologue-less **call-target islands** described
+below (on the four MK60E5 images recovered so far, 9–10 small helpers in ~5 KB). The driver
+determines all of them for *any* image:
 
 - **`codeLO`** is always `0x42000` (below it, `0x40000–0x41FFF` is the VBR table + calibration
   directory + OSEK init stubs — handled separately by `OsInit.java` if needed).
@@ -113,20 +124,33 @@ where `codeHI == dataLO`. The driver determines them for *any* image:
   - **`codeHI`** = a recovery ceiling a few KB above the highest prologue (function bodies/pools run
     above their entry). It also prints a prologue histogram and an **arch verdict** — too few
     prologues ⇒ "this isn't M·CORE".
-- **`DataSectionClean auto`** then pins the **exact `dataLO`** Ghidra-side: the end of the last
-  function that *starts with the prologue*. Because spurious data-region functions never start with
-  the prologue, that's the true code/data boundary — and the clean step additionally **never deletes
-  or clears a prologue-started function**, so a slightly-off estimate can't damage real code.
+- **`DataSectionClean auto`** then pins the boundaries Ghidra-side. The **prologue pin** `codeHI`
+  is the end of the last function that *starts with the prologue*; spurious data-region functions
+  never start with the prologue, so nothing above it is auto-analysis's idea of code. But it is not
+  quite the end of the code: on every MK60E5 image a handful of **prologue-less leaf helpers** sit
+  above the last prologue function (`cmpnei r2,1; movi r2,0x1f; lsli r2,0x13; …; jmp r15` — timer
+  and wheel-speed-capture configuration helpers, 16–600 bytes each, called through `jsri` from the
+  ISR time-slot code and the wheel-speed latch). The clean step keeps **prologue functions** and
+  **protected functions** — functions that are call or tail-jump targets of trusted code (every
+  function below the prologue pin, transitively) — deletes every other function above the pin, clears
+  every other instruction there, and labels the code-referenced table bases, never one that is code.
+  **`dataLO`** is the end of the last real function, protected islands included; it starts the data
+  section proper, which must hold no code at all. Without the protection rule the islands were
+  cleared to `??` every round and their entries labelled `tbl_…` table bases, and because the
+  recovery window stopped at the pin nothing ever brought them back.
 
-- The pinned `dataLO` is written to **`<proj_dir>/<prog>.bounds`** (`CODE_LO`/`DATA_LO`/`DATA_HI`).
-  Every later round and re-run uses it as the recovery ceiling (`CODE_HI`), because `find_boundary`'s
-  `codeHI` is only an estimate a few KB *above* the real boundary: without the sidecar each run
-  re-disassembles that gap and `DataSectionClean` deletes it again (tens of functions, thousands of
-  instructions of churn per run). `mcore_verify.sh` reads the same file. Delete it, or set `CODE_HI`,
-  to start from the estimate again.
+- The pins are written to **`<proj_dir>/<prog>.bounds`** (`CODE_LO`/`CODE_HI`/`DATA_LO`/`DATA_HI`;
+  an older sidecar with only `DATA_LO` is read as the prologue pin). Every later round and re-run
+  uses `CODE_HI` as the recovery ceiling, because `find_boundary`'s `codeHI` is only an estimate a
+  few KB *above* the real boundary: without the sidecar each run re-disassembles that gap and
+  `DataSectionClean` deletes it again (tens of functions, thousands of instructions of churn per
+  run). The window stays at the *prologue* pin, not at `dataLO`: the tables between the islands must
+  not be re-disassembled by the general passes every round either — the islands are reached by the
+  one pass that needs no window, `RecoverCallTargets`. `mcore_verify.sh` reads the same file. Delete
+  it, or set `CODE_HI`, to start from the estimate again.
 
 Override any bound via env (hex, no `0x`): `CODE_LO`, `CODE_HI`, `DATA_HI`; set `DATA_LO=<hex>` to
-pin it yourself instead of `auto`; `FORCE=1` proceeds despite a non-M·CORE verdict. You can also run
+pin the clean floor (the prologue pin) yourself instead of `auto`; `FORCE=1` proceeds despite a non-M·CORE verdict. You can also run
 `python3 -I tools/find_boundary.py <cpu_hex>` on its own to inspect the histogram before recovering.
 
 ### The recovery loop (over `[codeLO, codeHI)`, ×`passes`)
@@ -136,23 +160,26 @@ pin it yourself instead of `auto`; `FORCE=1` proceeds despite a non-M·CORE verd
 | `RecoverRefCode` | code reached through function pointers whose refs were never materialized; also seeds the VBR exception-vector table (`0x40000`, 128 entries — bit 0 of an entry is the alternate-register-file flag, not an address bit) |
 | `RecoverCodeRuns` | undefined runs that classify as CODE (clean decode to a terminator, not a table/padding) |
 | `RecoverPrologues` | functions *inside* an undefined run. `RecoverCodeRuns` judges a run from its first byte, so a run that opens with the previous function's literal pool is rejected whole and every function after the pool stays `??` — on a fresh image ~13 KB of the code region, 50–70 functions, raising no error bookmark and no orphan count. This pass seeds on the frame prologue itself (`subi r0,N ; stm rX-r15,(r0)`, the pair `find_boundary.py` trusts) wherever it sits in undefined bytes — or in a small scalar nothing reads or writes, the other flavour: an address-taken callback whose entry byte `ClassifyData` typed `uint8_t` — and the code decodes cleanly from there. A body whose straight-line flow falls into such a mis-typed scalar (a constant that looks like a code address, e.g. `0x80000` as a bit mask, gets PARAM references and the word *at* that address is typed mid-function) has the item cleared and the disassembly continued; an unnamed `FUN_` reached by straight fall-through that nothing calls, jumps to or points at is a spurious continuation and is absorbed. `mcore_verify.sh` reports prologues left in non-code bytes (want 0) |
-| `RecoverFlowCode` | branch-only-reached blocks: computes the target of a `bt/bf/br/bsr` with empty `getFlows()` from the encoding, and the pool-slot pointer of an indirect `jmpi/jsri` — and **records it as a flow reference**. Ghidra only materializes computed-flow references during auto-analysis, so every branch in script-disassembled code had none: body tracing, `RetraceBodies` and the decompiler all stopped at the first `bt/bf` of such a function. The reference is what lets the rest of the loop (and the decompiler) follow it |
+| `RecoverFlowCode` | branch-only-reached blocks: computes the target of a `bt/bf/br/bsr` with empty `getFlows()` from the encoding, and the pool-slot pointer of an indirect `jmpi/jsri` — from the instruction's reference to its slot, or, when it has none, from the encoding (`slot = ((PC+2) & ~3) + (imm8 << 2)`, recorded as a `READ` reference so `FixLiteralPools` types the slot; one `jsri` in nine in script-disassembled code carries no operand reference at all, and a callee whose only caller is such a `jsri` had no reference anywhere) — and **records it as a flow reference**. Ghidra only materializes computed-flow references during auto-analysis, so every branch in script-disassembled code had none: body tracing, `RetraceBodies` and the decompiler all stopped at the first `bt/bf` of such a function. The reference is what lets the rest of the loop (and the decompiler) follow it |
+| `RecoverCallTargets` | **the one pass with no window** (`codeLO..dataHI`): a called address is code by definition, so every `bsr` (displacement from the encoding), `jsri` and tail `jmpi` (pointer in the pool slot, by reference or by encoding) inside a *trusted* function — any function below the prologue pin, and transitively every function this pass reaches — is resolved and, if still raw bytes, disassembled, traced (fall-through, `bt/bf/br` targets and `jmpi` tail targets, all recorded as flow references: above the pin no other pass will) and functionized; generic `tbl_` labels on the entry are dropped, a curated name is kept and becomes the function's name; the call edge and a missing slot `READ` reference are recorded. Guards on a seed: 2-aligned, inside the image, not inside a pointer table, undefined or a small scalar nothing reads/writes, clean pseudo-decode to a terminator within 64 instructions with no `0x0000`/`0xFFFF` padding word; a padding `bsr` (`0xFFFF` = `bsr .`) is ignored and spurious data-section functions are never trusted. It recovers the two kinds nothing else sees: the prologue-less islands above the pin, and in-window callees reached only through a `jsri` without a slot reference (`(*(code *)&UNK_000c6eb8)(1,…)` in the decompiler). Both the islands and the in-window callees are 8–10 per image. `PtrTargets` reports what is left (want 0) |
+| `RecoverTablePointers` | functions whose only reference is a code pointer in an **untyped data-section table**: every 4-aligned word from the prologue pin up whose value is a 2-aligned code-region address. The CAN signal descriptor tables at `0xD8xxx` hold one getter per signal (`lrw; ld.h; jmp r15`, 4–6 bytes apart — `sig20`, `can_tx_0B6_sig19`), the KWP service table at `0xF30A0` the handler per record at +4 (`kwp_3e_tester_present`); an untyped word creates no reference, so `RecoverRefCode` never saw them and ~75 per image stayed raw. Seeded only when the target is not in a pointer-table run, is undefined or a small unreferenced scalar, and pseudo-decodes as a function — the frame prologue, or a clean leaf reaching `jmp r15`/`rts` within 40 instructions with no branch out and no padding word (a calibration value can look like a code address, so this is stricter than "decodes cleanly"); a target that is already orphan code is functionized; a DATA reference from the word is recorded; the word itself is not typed. `PtrTargets` reports what is left (want 0) and, informationally, table pointers into the middle of a body (~100 per image: alternate entries and descriptor fields that happen to look like addresses) |
 | `FixJumpTables` | reverts absolute-pointer jump tables mis-disassembled as code; re-disassembles genuine jump-table targets incl. `jmp rN` switches |
-| `FixLiteralPools` | defines the PC-relative literal pools (only inside `[codeLO, codeHI)` — a data-section table an instruction reads is not a pool, and typing its first word as a pointer because it looks like an address is a mistake the later typing passes rightly refuse to undo) and clears the pool-as-code red; guarded not to re-type a non-terminator fall-through target (that's truncated code, not a pool), and never to touch bytes inside a typed `Array`/`Structure` (an inline table a curator or the annotation replay typed — clearing "the 4 bytes at the slot" would destroy the whole item and leave fragments that `RecoverCodeRuns` turns into spurious functions; `FixResidual`, `ClassifyData` and `ApplyDataTypes` carry the same guard) |
+| `FixLiteralPools` | defines the PC-relative literal pools (only inside `[codeLO, codeHI)` — a data-section table an instruction reads is not a pool, and typing its first word as a pointer because it looks like an address is a mistake the later typing passes rightly refuse to undo) and clears the pool-as-code red. The slot of an `lrw`/`jsri`/`jmpi` comes from the instruction's operand reference or, when it has none (one in eight in script-disassembled code), from the encoding, `((PC+2) & ~3) + (imm8 << 2)`, and the READ reference is recorded. Such a **PC-relative slot is data by construction**: it is typed whatever falls through into it, a flow reference into it is junk (0xFFFF padding decodes as `bsr .`), and a function whose entry is one is **a pool decoded as code** — auto-analysis fell into the pool after a `bkpt`/padding gap, functionized it, and sometimes swallowed the real function after it; about 95 such `FUN_`s per image protected their own pools from this pass for as long as function entries were treated as code. They are removed (a name the symbol port put on one stays as a label), the slots typed, a real body that had run through its own pool after an `rte`/`rfi` (not terminal in the SLEIGH) re-created so it stops at the data, the padding stub that is left cleared. Only a *trusted* `lrw` is believed — reachable from the entry of a plausibly real function (named, prologue-started, or referred to from outside by data or by trusted code; two rounds, so junk referring to junk drops out) without crossing `rte`/`rfi`/`bkpt`/`stop`/`wait`/`doze`/`sync` or a 0x0000/0xFFFF halfword — because a pool word that decodes as `lrw` names a fake slot up to 1 KB ahead; a slot inside trusted code is ignored as fake, and an untrusted `lrw` is believed only about bytes no function owns. Still guarded not to re-type an absolute-`ld` target reached by fall-through (that's truncated code, not a pool), and never to touch bytes inside a typed `Array`/`Structure` (an inline table a curator or the annotation replay typed — clearing "the 4 bytes at the slot" would destroy the whole item and leave fragments that `RecoverCodeRuns` turns into spurious functions; `FixResidual`, `ClassifyData` and `ApplyDataTypes` carry the same guard) |
 | `FixResidual` | mops up padding (`0x0000`/`0xFFFF`) and pool-edge spurious decodes |
 | `RetraceBodies` | drops spurious continuation functions and re-traces truncated function bodies — truncated by fall-through *or* by a branch: M·CORE branches are computed jumps, so a body traced before `RecoverFlowCode` materialized their targets stops at the first `bt/bf/br`; without this rule ~20% of the code region ends up as instructions no function owns |
-| `FunctionizeOrphans` | gives the remaining owner-less code a function, rescanning until nothing new appears (a run of 4-byte switch-case stubs, each a jump-table target, yields one function per scan): runs referenced from data (function pointers, vectors, jump tables), runs referenced from a function that tracing could not absorb, prologue-started runs, and *displaced entries* — a callback whose address is taken and passed as a parameter gets its first bytes auto-typed `uint8/16/32_t` by `ClassifyData`, so the run starts a few bytes after the real entry; the item is cleared and the function created at its address when the code decodes cleanly from there. Unreferenced speculative decodes are left alone and reported by `mcore_verify.sh` |
+| `FunctionizeOrphans` | gives the remaining owner-less code a function, rescanning until nothing new appears (a run of 4-byte switch-case stubs, each a jump-table target, yields one function per scan): runs referenced from data (function pointers, vectors, jump tables), runs referenced from a function that tracing could not absorb — a READ/WRITE reference does not count: an `lrw` reading it makes it a pool slot, not a function — prologue-started runs (`subi r0,N; stm`, or the light flavour `subi r0,N; st.w r15,(r0,k)` of a function that saves only the link register, which is what the real code behind a pool-decoded-as-code usually starts with), and *displaced entries* — a callback whose address is taken and passed as a parameter gets its first bytes auto-typed `uint8/16/32_t` by `ClassifyData`, so the run starts a few bytes after the real entry; the item is cleared and the function created at its address when the code decodes cleanly from there. Unreferenced speculative decodes are left alone and reported by `mcore_verify.sh` |
 
 ### Then the data section + finish (once)
 
 | script | what it does |
 |---|---|
-| `DataSectionClean auto <dataHI>` | pins `dataLO`, deletes spurious functions in the data section, clears mis-disassembled instructions to `undefined`, and labels every code-referenced table base |
+| `DataSectionClean auto <dataHI>` | pins `codeHI` (prologue pin) and `dataLO` (end of the last real function, protected call-target islands included); from the prologue pin up deletes every function that is neither prologue-started nor protected, clears every other instruction to `undefined`, and labels every code-referenced table base that is not code (a stale `tbl_` on a now-code address is removed) |
 | `FixStorage2` | assigns return storage (`r2`) to recovered functions — kills `<UNASSIGNED> RETURN` warnings |
 | `ClassifyData` | sizes referenced-but-undefined data to `undefined1/2/4` from ld/st access width; drops VBR=0 default vector symbols |
 | `ApplyDataTypes /dev/null` | turns those into stdint typedefs (`uint8/16/32_t`) so the listing reads like C; guarded to only re-type Undefined/own-typedefs/auto byte-word-dword |
 | `ClearAnalysisBookmarks` | removes the orange breadcrumb bookmarks (**must be last** of the writers) |
 | `ScanMisdisasm LO HI` | read-only: pointer tables still sitting inside instructions (**want 0**) |
+| `PtrTargets codeLO dataHI codeHI` | read-only, four gates (**want 0** each — the driver and `mcore_verify.sh` gate on all): call and tail-jump targets of the image's functions that are not instruction starts; `poolSlotsInCode` — the slot of a trusted `lrw`/`jsri`/`jmpi` lying inside an instruction (a pool decoded as code); `tablePtrTargetsNotCode` — code pointers in data-section words at function-like raw bytes. Also lists *suspect* call sites whose target is typed data or decodes dirty (a pool word or padding decoded as `bsr` inside a junk function; 2–5 per image, informational) |
 | `CountErr` | error-bookmark count (**want 0**) + function count |
 
 ### Then signatures (once, after convergence)
@@ -167,8 +194,16 @@ functions come out with all six register parameters (`r2`–`r7`), and a callee 
 forces every caller to show `in_r3` / `extraout_r4` noise. That is hand work on the functions you
 care about, callee first: fix the leaf's prototype and its callers clean up on their own.
 
+**After a change to the SLEIGH *semantics*** (p-code only — the same bytes still decode to the same
+instructions, as with the `ld.b`/`ld.h`/`st.b`/`st.h` width fix) nothing in the recovery changes:
+every recovery pass works on mnemonics, operands, references and bytes, never on p-code, and the
+stored listing is bytes plus prototypes that Ghidra rebuilds from the installed `.sla` on open. Only
+this step reads p-code (stack frames and decompiler data flow), so re-run `install_mcore.sh`, then just
+`ReadOnlyFlash` + `AnalyzeSignatures` on each project — no re-recover, no re-import, names and comments
+untouched. A change to the *decode* (a new constructor, a bitfield) is a different matter: re-recover.
+
 **Done looks like:** the driver prints `DONE: converged, 0 error bookmarks, 0 mis-disassembled
-tables` and exits 0; function count in the low thousands (not 8000+, which means the data section
+tables, 0 call targets outside code` and exits 0 (the last item covers all four `PtrTargets` gates); function count in the low thousands (not 8000+, which means the data section
 wasn't cleaned). `CountErr = 0` on its own is **not** enough — it was already 0 after a run whose
 last pass was still adding functions. If the driver exits 4, re-run it (idempotent; it resumes from
 the sidecar bounds) or raise `ROUNDS`/`passes`.
@@ -251,9 +286,12 @@ One read-only run against a snapshot of the project (the GUI may stay open). It 
 from `<prog>.bounds`, runs the scanners below, and prints a summary — error bookmarks, mis-disassembled
 table runs, code bytes in the data section, orphan code runs referenced by data or by a function
 (all want 0), prologues still sitting in non-code bytes (functions the recovery never
-disassembled; want 0), code bytes owned by no function at all (unreferenced speculative decodes;
-informational), function count, table-base count, and the function count in the region below
-`codeLO` — exiting 4 if anything gated isn't clean. The individual
+disassembled; want 0), call and tail-jump targets that are not code (functions the recovery never
+disassembled *or cleared*; want 0), pool slots inside instructions (a pool decoded as code; want 0),
+table pointers to undisassembled functions (want 0), code bytes owned by no function at all (unreferenced
+speculative decodes; informational), suspect call sites (informational), function count, table-base
+count (from the prologue pin up), the island span between the two pins, and the function count in
+the region below `codeLO` — exiting 4 if anything gated isn't clean. The individual
 scanners, if you want one on its own (`dump.sh` shows the snapshot idiom):
 
 - **`CountErr.java`** — error bookmarks (want 0) + function count. The headline health check.
@@ -264,6 +302,17 @@ scanners, if you want one on its own (`dump.sh` shows the snapshot idiom):
 - **`UndefPrologues.java [LO HI]`** — frame prologues in bytes that are not instructions (undefined,
   or a small scalar nothing reads/writes): functions never disassembled, invisible to every other
   check because raw `??` raises nothing. **Must read 0**; `RecoverPrologues` is what clears it.
+- **`PtrTargets.java [codeLO dataHI codeHI]`** — walks every `bsr`/`jsri`/`jmpi` inside a function
+  of the image, resolves the target (encoding, or the pool slot by reference or encoding) and reports
+  the ones that are not instruction starts: `callTargetsNotCode` + `tailJumpTargetsNotCode` **must
+  read 0** (`RecoverCallTargets` clears them). `poolSlotsInCode` — a trusted `lrw`/`jsri`/`jmpi`
+  slot inside an instruction, i.e. a pool decoded as code — **must read 0** (`FixLiteralPools`
+  clears it); `tablePtrTargetsNotCode` — a 4-aligned word from the prologue pin up holding a
+  code-region address at function-like raw bytes — **must read 0** (`RecoverTablePointers` clears
+  it). `callTargetsSuspect` (typed data / dirty decode: junk call sites), `callTargetsNotFnEntry`
+  (an alternate entry into another body), `tablePtrTargetsOrphanCode` and `poolPtrCodeLikeNotCode`
+  (lrw'd pointers to function-looking raw bytes; 0 on all four images) are informational. The only
+  check that sees a prologue-less function that was cleared or never disassembled.
 - **`DataTableInventory.java [DATA_LO DATA_HI]`** — harvests code-referenced table bases in the data
   section: how you quantify the data map (grouped by reader subsystem).
 - **`UpperScan.java [LO]`** — classify undefined/code runs from an address up (PADDING / MONOTONIC /
@@ -295,6 +344,26 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
   `ForceData.java` (revert). Anything larger, or any run that *is* referenced, means a recovery rule
   is missing — see the three cases above (branch references, vector table, displaced entries), which
   is how this list was built.
+- **"No errors" ≠ complete, part three: a prologue-less function raises nothing at all.** Leaf
+  helpers have no `subi r0,N; stm` pair, so neither `find_boundary.py` nor `UndefPrologues` sees
+  them, and a cleared one has no orphan run to count. Above the prologue pin that was every island
+  (cleared to `??` and labelled `tbl_…` each round); in the window it was any callee whose only
+  reference was a `jsri` with no slot reference. What is called is code — `PtrTargets` gates on it
+  and `RecoverCallTargets` recovers it, window or not. The same holds for function pointers stored in
+  *untyped data-section tables* (the CAN signal descriptor tables at `0xD8xxx` hold getters such as
+  `sig20`/`can_tx_0B6_sig19` at `0x7ABxx`, 4–6 bytes apart; the KWP service table's handler field):
+  about 75 code-pointer words per image pointed at raw bytes, invisible to `RecoverRefCode` because
+  an untyped table word creates no reference — `RecoverTablePointers` seeds them under a stricter
+  decode test, and `PtrTargets` gates on what is left.
+- **A literal pool decoded as code hides in plain sight.** Auto-analysis fell into pools after a
+  `bkpt`/padding gap, functionized them (`ldq r4-r7,(r0); st.w ...`, or `bsr .` for 0xFFFF padding)
+  and sometimes swallowed the real function after the pool (`kwp_3e_tester_present` lived inside
+  `FUN_000b1210`, kwp_dispatch's pool). Nothing red, nothing orphaned, and `FixLiteralPools` could
+  not type the slots because function entries and fall-through targets counted as code — about 95
+  such functions and 300–380 slots per image. The rule now is that a PC-relative slot is data by
+  construction (see the `FixLiteralPools` row); the symptom to look for is a `FUN_` with no
+  prologue whose body reads as `ldq`/`stop`/`bsr .` and whose entry an `lrw` elsewhere loads from.
+  `mcore_verify.sh` gates on `poolSlotsInCode`.
 - **"No errors" ≠ complete, part two: raw `??` in the code region can be whole functions.** A
   constant that happens to look like a code address (`0x80000` used as a bit-19 mask, say) gets
   PARAM references from the `lrw` that loads it; `ClassifyData` then types the word *at* that
@@ -311,9 +380,11 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
   no error bookmark and don't affect the code region. `mcore_verify.sh` reports the count so it is
   visible; `OsInit.java` disassembles the real init stubs if you need them, and `ForceData.java`
   reverts a specific spurious one.
-- **Trust the auto boundary, but glance at it.** `DataSectionClean auto` prints the pinned `dataLO`;
-  it's the end of the last prologue function. If a disassembly looks truncated at the top of the code,
-  check that number and the `ImageMap` landscape.
+- **Trust the auto boundaries, but glance at them.** `DataSectionClean auto` prints both pins:
+  `CODE_HI` is the end of the last prologue function, `DATA_LO` the end of the last protected island
+  above it (the line also says how many islands and which function is last). If a disassembly looks
+  truncated at the top of the code, check those numbers and the `ImageMap` landscape; `mcore_verify.sh`
+  prints the island span.
 - **Shared tails stay separate functions.** When several functions jump to one block (switch-case
   stubs converging on a common epilogue), Ghidra can't put it in all their bodies, so it stays its
   own small `FUN_` and the stubs end in a jump to it. `RetraceBodies` keeps such an entry even when
@@ -329,6 +400,15 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
   like pool slots but are variables in an uninitialized block, so they are skipped and counted (large
   N is normal). `failed` is the rare slot that can't be typed at all (its 4 bytes run off the end of a
   block); the line names it with the exception. Both are constant across passes and not errors.
+- **`CONCAT31`/`CONCAT22` everywhere, byte variables shown as 32-bit globals, and "Globals starting
+  with '_' overlap smaller symbols" warnings** were the SLEIGH, not the image: upstream `mcore.sinc`
+  writes `regZ = *[ram]:1 EA;` for `ld.b` (`:2` for `ld.h`, and the mirror for `st.b`/`st.h`), and
+  SLEIGH sizes the access from the 4-byte register, so every byte/halfword load and store reached the
+  decompiler as a word — three byte stores `AA / x / 8C` at `0x403322..24` showed as one 32-bit value
+  at `0x403323..26` plus `0x8C` at `0x403327`. `mcore.patch` now makes the width explicit
+  (`zext(*[ram]:1 EA)`, `*[ram]:1 EA = regZ:1`; `ld.b`/`ld.h` zero-extend on M·CORE). Check with
+  `Instruction.getPcode()`: `LOAD`/`STORE` must carry a 1- or 2-byte value operand. `ldm`/`stm`/`ldq`/
+  `stq`/`lrw`/`ld.w`/`st.w` are word accesses and were right.
 - **`Flow Override: CALL_RETURN (COMPUTED_CALL_TERMINATOR)`** on a `jmpi`/`br` is a benign tail call.
 - **Single-site fixes:** `ForceFn.java` (clear+disassemble+functionize one address), `ForceData.java`
   (revert to data), `FixFnEntry.java` (re-root a late-seeded entry). Avoid whole-body "repair" clears —
@@ -345,7 +425,7 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
 | `tools/find_boundary.py` | prologue-scan: arch check + programmatic codeHI/dataHI from a `.cpu.hex` |
 | `tools/port_symbols.py` | signature 1:1 matcher + call-site/table-slot propagation; writes `ported.tsv` + `tail.txt` |
 | `tools/ghidra/mcore_import.sh` | step 1: arch-check + parse + import + `CreateMemBlocks` |
-| `tools/ghidra/mcore_recover.sh` | step 2: auto-bounds + recover + finish, repeated until converged; writes `<prog>.bounds` |
+| `tools/ghidra/mcore_recover.sh` | step 2: auto-bounds + recover + finish, repeated until a round starts clean; writes `<prog>.bounds` (`CODE_LO/CODE_HI/DATA_LO/DATA_HI`) |
 | `tools/ghidra/mcore_port.sh` | step 3: `ExportSigs` ×2 + match + propagate + `ApplyPortedNames` |
 | `tools/ghidra/mcore_verify.sh` | V: read-only health check + memory-map numbers in one run (snapshot; GUI may be open) |
 | `tools/ghidra/dump.sh <proj_dir> <name> <cpu_hex> ADDR:N …` | read-only disassembly dump from a snapshot (GUI may be open) |
@@ -358,16 +438,18 @@ The drivers run these for you; listed so you can run one on its own. Bound-confi
 | script | step / role | args |
 |---|---|---|
 | `CreateMemBlocks.java` | 1 — add RAM/MMIO blocks | — |
-| `FixLiteralPools.java` | 2 — define pools, clear pool-as-code red | `[LO HI]` |
+| `FixLiteralPools.java` | 2 — define pools (slots by reference or encoding), remove pools decoded as code, clear pool-as-code red | `[LO HI]` |
 | `FixResidual.java` | 2 — mop up padding / pool edges | — |
 | `RecoverRefCode.java` | 2 — code reached via unmaterialized pointers | `LO HI` |
 | `RecoverCodeRuns.java` | 2 — functionize CODE-classified runs | `LO HI` |
 | `RecoverPrologues.java` | 2 — functionize prologue-seeded code inside undefined runs; clear mis-typed scalars a body falls into | `LO HI` |
 | `RecoverFlowCode.java` | 2 — branch-only-reached blocks | `LO HI` |
+| `RecoverCallTargets.java` | 2 — every `bsr`/`jsri`/`jmpi` target of trusted code, image-wide; islands above the pin | `CODE_LO DATA_HI` |
+| `RecoverTablePointers.java` | 2 — functions pointed to only from untyped data-section tables | `CODE_LO CODE_HI SWEEP_LO DATA_HI` |
 | `FixJumpTables.java` | 2 — revert table-as-code, redo jump-table targets | `LO HI` |
 | `RetraceBodies.java` | 2 — drop spurious continuations, re-trace bodies | `LO HI` |
 | `FunctionizeOrphans.java` | 2 — functionize referenced / prologue-started orphan code | `LO HI` |
-| `DataSectionClean.java` | 2 — pin dataLO, delete spurious fns, label tables | `auto DATA_HI` \| `DATA_LO DATA_HI` |
+| `DataSectionClean.java` | 2 — pin codeHI + dataLO, delete spurious fns (keep prologue + protected), label tables | `auto DATA_HI` \| `PIN DATA_HI` |
 | `FixStorage2.java` | 2 — assign return storage | — |
 | `ClassifyData.java` | 2 — size referenced undefined data | — |
 | `ApplyDataTypes.java` | 2 — undefined → `uint8/16/32_t` typedefs | `<types.tsv or /dev/null>` |
@@ -382,6 +464,7 @@ The drivers run these for you; listed so you can run one on its own. Bound-confi
 | `ImageMap.java` | V — block list + code/data/undefined landscape | — |
 | `ScanMisdisasm.java` | 2/V — detect table-as-code (want 0) | `[LO HI]` |
 | `UndefPrologues.java` | V — prologues in non-code bytes = functions never disassembled (want 0) | `[LO HI]` |
+| `PtrTargets.java` | 2/V — call/tail-jump/table-pointer targets that are not code, pool slots inside code (all want 0) + suspect call sites | `[CODE_LO DATA_HI [CODE_HI]]` |
 | `DataTableInventory.java` | V — harvest code-referenced table bases | `[DATA_LO DATA_HI]` |
 | `UpperScan.java` | V — classify undefined/code runs from an address up | `[LO]` |
 | `RegionStats.java` | V — functions/instructions/undefined/orphan-code bytes in a range | `LO HI [listMax]` |

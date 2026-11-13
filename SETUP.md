@@ -63,7 +63,8 @@ This:
    `$GHIDRA_HOME/Ghidra/Processors/MCORE`,
 2. drops in the local compiler spec (`tools/patches/mcore.cspec`) and applies the local
    SLEIGH fixes (`tools/patches/mcore.patch` — one-based addi/subi/cmplti immediates,
-   `bmaski 32`, `mulsh`, `idly4`, the `jmpi`/`jsri` bitfield, `psrclr`/`psrset`),
+   `bmaski 32`, `mulsh`, `idly4`, the `jmpi`/`jsri` bitfield, `psrclr`/`psrset`, and 1-/2-byte
+   p-code for `ld.b`/`ld.h`/`st.b`/`st.h` — upstream emitted 4-byte loads and stores for them),
 3. runs Ghidra's `sleigh` compiler to produce `mcore.sla`.
 
 Success prints `OK: mcore.sla built. Language MCORE:BE:32:default is now available.`
@@ -73,7 +74,9 @@ It's **idempotent** — re-run it any time, and **you must re-run it after `brew
 
 > **Why patched?** The upstream CUB3D module has a few opcode/bitfield bugs that matter for this
 > image — most importantly `jmpi`/`jsri` constrain the wrong bitfield, so thousands of indirect
-> calls and tail-jumps decode as bogus `lrw` loads. `tools/patches/make_mcore_patch.py`
+> calls and tail-jumps decode as bogus `lrw` loads — and `ld.b`/`ld.h`/`st.b`/`st.h` carried
+> 4-byte p-code (SLEIGH sized the dereference from the 32-bit register and dropped the `:1`/`:2`),
+> so the decompiler read every byte and halfword access as a word. `tools/patches/make_mcore_patch.py`
 > regenerates `mcore.patch` from the upstream `mcore.sinc` if you ever need to (documented inline).
 
 ## 5. Verify

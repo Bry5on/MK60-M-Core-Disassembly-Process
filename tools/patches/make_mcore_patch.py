@@ -9,6 +9,12 @@ Fixes (checked against binutils opcodes/mcore-opc.h and the DSCM90 image):
   5. jmpi/jsri constrain the wrong bitfield (op4_15 vs op8_15), so both never
      match and `lrw` swallows them -- M-CORE `lrw r0` IS jmpi and `lrw r15` IS
      jsri. Fixing this recovers thousands of indirect calls/tail-jumps.
+  6. psrclr/psrset (0x11F0-0x11FF) decoded as `mfcr rX,cr31`.
+  7. ld.b/ld.h/st.b/st.h emitted 4-byte LOAD/STORE p-code: SLEIGH sizes the
+     dereference from the 4-byte register operand and drops the `:1`/`:2`, so
+     the decompiler read every byte/halfword access as a word (CONCAT31/CONCAT22
+     noise, 32-bit "globals" over byte variables). zext()/truncate explicitly;
+     M-CORE ld.b/ld.h zero-extend.
 
 Usage: python3 -I tools/patches/make_mcore_patch.py
 """
@@ -75,6 +81,21 @@ sub1(r"(:mfcr regX, ctrlRegY is op9_15=0b0001000 & ctrlRegY & regX \{)",
      "\tpsrclr_op(psrimm:1);\n}\n"
      ":psrset psrimm is op3_15=0b0001000111111 & psrimm {\n"
      "\tpsrset_op(psrimm:1);\n}\n\n\\1")
+
+# 7. Byte / halfword loads and stores. `regZ = *[ram]:1 EA;` compiles to a 4-byte LOAD
+#    (the size annotation loses to the 4-byte register on the other side), likewise the
+#    stores: Instruction.getPcode() showed `LOAD (const,ram,8), ea` with a 4-byte output for
+#    every ld.b/ld.h and a 4-byte STORE for every st.b/st.h. Make the width explicit.
+#    ld.b/ld.h zero-extend on M-CORE (ld.bs/ld.hs do not exist on the 200-series core).
+#    ldm/stm/ldq/stq/lrw/ld.w/st.w are word accesses and stay as they are.
+sub1(r"(:ld\.b regZ, \(regX, disp\)[^\n]*\n\tlocal EA:4 = regX \+ disp;\n\t)regZ = \*\[ram\]:1 EA;",
+     r"\1regZ = zext(*[ram]:1 EA);")
+sub1(r"(:ld\.h regZ, \(regX, disp\)[^\n]*\n\tlocal EA:4 = regX \+ disp;\n\t)regZ = \*\[ram\]:2 EA;",
+     r"\1regZ = zext(*[ram]:2 EA);")
+sub1(r"(:st\.b regZ, \(regX, disp\)[^\n]*\n\tlocal EA:4 = regX \+ disp;\n\t)\*\[ram\]:1 EA = regZ;",
+     r"\1*[ram]:1 EA = regZ:1;")
+sub1(r"(:st\.h regZ, \(regX, disp\)[^\n]*\n\tlocal EA:4 = regX \+ disp;\n\t)\*\[ram\]:2 EA = regZ;",
+     r"\1*[ram]:2 EA = regZ:2;")
 
 diff = difflib.unified_diff(orig.splitlines(True), s.splitlines(True),
                             "a/mcore.sinc", "b/mcore.sinc")

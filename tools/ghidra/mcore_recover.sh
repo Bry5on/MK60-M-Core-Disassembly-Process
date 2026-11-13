@@ -6,28 +6,35 @@
 #   tools/ghidra/mcore_recover.sh <proj_dir> <name> <cpu_hex_path> [passes]
 #
 # Bounds are detected automatically: find_boundary.py gives codeLO/codeHI/dataHI from the
-# .cpu.hex, and the EXACT data boundary (dataLO) is pinned Ghidra-side by DataSectionClean's
-# `auto` mode (end of the last real prologue function). Override any bound via env (hex, no
-# 0x): CODE_LO, CODE_HI, DATA_HI; set DATA_LO=<hex> to pin it yourself instead of `auto`.
+# .cpu.hex, and the EXACT boundaries are pinned Ghidra-side by DataSectionClean's `auto` mode:
+# CODE_HI = end of the last prologue function (the recovery-window ceiling) and DATA_LO = end of
+# the last real function including the prologue-less call-target islands above that pin (the
+# start of the data section proper). Override any bound via env (hex, no 0x): CODE_LO, CODE_HI,
+# DATA_HI; set DATA_LO=<hex> to pin the clean floor yourself instead of `auto`.
 # Set FORCE=1 to proceed even if the image doesn't look like M·CORE.
 #
 # Convergence: one headless session = [recovery loop x passes] + [finish chain]. The finish
 # chain can expose seeds the loop never saw, so the driver runs further ROUNDS (default 4)
-# until the last pass of a round adds nothing. Once DataSectionClean has pinned dataLO, the
-# value is saved to <proj_dir>/<prog>.bounds and reused as the recovery ceiling (CODE_HI) for
-# every later round and re-run, so the top of the data section is not re-disassembled and
-# re-cleaned each time. Delete the sidecar (or set CODE_HI) to start from the estimate again.
+# until a round STARTS with nothing to do (its first pass creates no function and reverts
+# nothing): the project left behind is then a fixpoint of loop + finish, and a re-run is a no-op. Once DataSectionClean has pinned the boundaries,
+# they are saved to <proj_dir>/<prog>.bounds (CODE_LO/CODE_HI/DATA_LO/DATA_HI) and CODE_HI is
+# reused as the recovery ceiling for every later round and re-run, so the top of the data
+# section is not re-disassembled and re-cleaned each time. Delete the sidecar (or set CODE_HI)
+# to start from the estimate again.
 #
-# Exit status: 0 = converged, 0 error bookmarks, 0 mis-disassembled tables.
+# Exit status: 0 = converged, 0 error bookmarks, 0 mis-disassembled tables, 0 call / table-pointer
+#              targets that are not code, 0 pool slots inside code.
 #              1 = a headless session failed (see the round log in <proj_dir>).
 #              3 = not an M·CORE image.   4 = finished but not clean (details printed).
 #
 # Chain: FixLiteralPools
-#        -> [RecoverRefCode RecoverCodeRuns RecoverPrologues RecoverFlowCode FixJumpTables
-#            FixLiteralPools FixResidual RetraceBodies FunctionizeOrphans] x passes  (codeLO..codeHI)
-#        -> DataSectionClean {auto|DATA_LO} DATA_HI   (delete spurious fns, label tables)
+#        -> [RecoverRefCode RecoverCodeRuns RecoverPrologues RecoverFlowCode
+#            RecoverCallTargets (codeLO..dataHI: every call target, window-independent)
+#            RecoverTablePointers (code pointers in untyped data-section tables)
+#            FixJumpTables FixLiteralPools FixResidual RetraceBodies FunctionizeOrphans] x passes  (codeLO..codeHI)
+#        -> DataSectionClean {auto|DATA_LO} DATA_HI   (delete spurious fns, label tables; pins CODE_HI + DATA_LO)
 #        -> FixStorage2 -> ClassifyData + ApplyDataTypes -> ClearAnalysisBookmarks
-#        -> ScanMisdisasm -> CountErr                   (read-only health checks)
+#        -> ScanMisdisasm -> PtrTargets -> CountErr      (read-only health checks)
 #        ] until converged, then once: ReadOnlyFlash -> AnalyzeSignatures (params/return/locals; SIGS=0 skips)
 set -euo pipefail
 [ $# -ge 3 ] || { sed -n '2,31p' "$0"; exit 2; }
@@ -52,32 +59,40 @@ pick(){ echo "$BND" | sed -n "s/.*$1=0x\([0-9a-fA-F]*\).*/\1/p"; }
 CODE_LO="${CODE_LO:-$(pick codeLO)}"; DATA_HI="${DATA_HI:-$(pick dataHI)}"
 DLO="${DATA_LO:-auto}"
 if [ -z "${CODE_HI:-}" ] && [ -f "$SIDECAR" ]; then
-  CODE_HI="$(sed -n 's/^DATA_LO=\([0-9a-fA-F]*\).*/\1/p' "$SIDECAR")"
-  echo ">> reusing pinned dataLO=$CODE_HI from $SIDECAR as the recovery ceiling (CODE_HI)"
+  # CODE_HI (prologue pin) from a current sidecar; an older one carries only DATA_LO, which was that pin.
+  CODE_HI="$(sed -n 's/^CODE_HI=\([0-9a-fA-F]*\).*/\1/p' "$SIDECAR")"
+  [ -n "$CODE_HI" ] || CODE_HI="$(sed -n 's/^DATA_LO=\([0-9a-fA-F]*\).*/\1/p' "$SIDECAR")"
+  echo ">> reusing pinned CODE_HI=$CODE_HI from $SIDECAR as the recovery ceiling"
 fi
 CODE_HI="${CODE_HI:-$(pick codeHI)}"
 echo ">> bounds: codeLO=$CODE_LO codeHI=$CODE_HI dataLO=$DLO dataHI=$DATA_HI  passes=$PASSES rounds<=$ROUNDS"
 
 # The per-script summary lines worth showing; the full log is kept per round.
-SHOW='Recover|FixLiteralPools:|FixJumpTables:|FixResidual:|RetraceBodies:|FunctionizeOrphans:|DataSectionClean|DATA_LO=|FixStorage2:|ClassifyData:|ApplyDataTypes:|ClearAnalysisBookmarks:|ScanMisdisasm:|CountErr:|Error bookmarks=|Unable to lock|ERROR|Exception'
+SHOW='Recover|FixLiteralPools:|FixJumpTables:|FixResidual:|RetraceBodies:|FunctionizeOrphans:|DataSectionClean|DATA_LO=|FixStorage2:|ClassifyData:|ApplyDataTypes:|ClearAnalysisBookmarks:|ScanMisdisasm:|PtrTargets:|CountErr:|Error bookmarks=|Unable to lock|ERROR|Exception'
 
-# newFunctions summed over the LAST pass of the loop (the scripts that create functions),
-# plus functions RetraceBodies removed or re-traced. Zero means the loop had nothing left to do.
-last_pass_work(){  # <log>
-  local total=0 v
-  for s in RecoverRefCode RecoverCodeRuns RecoverPrologues RecoverFlowCode FixJumpTables FunctionizeOrphans; do
-    v="$(grep "$s:" "$1" | tail -1 | sed -n 's/.*newFunctions=\([0-9]*\).*/\1/p')"
+# newFunctions summed over one pass of the loop (the scripts that create functions), plus
+# functions RetraceBodies removed or re-traced. Zero means the loop had nothing to do.
+# pass_work <log> first|last : the first pass of a round tells whether the PREVIOUS round's
+# finish chain (DataSectionClean, ClassifyData, ApplyDataTypes) exposed anything new; the
+# round is converged only when it starts with nothing to do, so the project the driver leaves
+# behind is a fixpoint of loop + finish and a re-run is a no-op. The last pass tells whether
+# the loop itself settled within the round.
+pass_work(){  # <log> first|last
+  local total=0 v pick=tail
+  [ "$2" = first ] && pick=head
+  for s in RecoverRefCode RecoverCodeRuns RecoverPrologues RecoverFlowCode RecoverCallTargets RecoverTablePointers FixJumpTables FunctionizeOrphans; do
+    v="$(grep "$s:" "$1" | $pick -1 | sed -n 's/.*newFunctions=\([0-9]*\).*/\1/p')"
     total=$((total + ${v:-0}))
   done
-  v="$(grep 'RetraceBodies:' "$1" | tail -1 | sed -n 's/.*removedSpurious=\([0-9]*\).*/\1/p')"
+  v="$(grep 'RetraceBodies:' "$1" | $pick -1 | sed -n 's/.*removedSpurious=\([0-9]*\).*/\1/p')"
   total=$((total + ${v:-0}))
-  v="$(grep 'RetraceBodies:' "$1" | tail -1 | sed -n 's/.*retraced=\([0-9]*\).*/\1/p')"
+  v="$(grep 'RetraceBodies:' "$1" | $pick -1 | sed -n 's/.*retraced=\([0-9]*\).*/\1/p')"
   total=$((total + ${v:-0}))
-  v="$(grep 'FixJumpTables:' "$1" | tail -1 | sed -n 's/.*misCodedReverted=\([0-9]*\).*/\1/p')"
+  v="$(grep 'FixJumpTables:' "$1" | $pick -1 | sed -n 's/.*misCodedReverted=\([0-9]*\).*/\1/p')"
   echo $((total + ${v:-0}))
 }
 
-converged=0; ERRS=; FNS=; MISRUNS=
+converged=0; ERRS=; FNS=; MISRUNS=; BADCALLS=1; PIN=
 for round in $(seq 1 "$ROUNDS"); do
   LOG="$PROJ_DIR/$PROG.recover.round$round.log"
   echo ">> round $round / $ROUNDS  (codeHI=$CODE_HI)  log: $LOG"
@@ -88,6 +103,8 @@ for round in $(seq 1 "$ROUNDS"); do
             -postScript RecoverCodeRuns.java "$CODE_LO" "$CODE_HI"
             -postScript RecoverPrologues.java "$CODE_LO" "$CODE_HI"
             -postScript RecoverFlowCode.java "$CODE_LO" "$CODE_HI"
+            -postScript RecoverCallTargets.java "$CODE_LO" "$DATA_HI"
+            -postScript RecoverTablePointers.java "$CODE_LO" "$CODE_HI" "$CODE_HI" "$DATA_HI"
             -postScript FixJumpTables.java "$CODE_LO" "$CODE_HI"
             -postScript FixLiteralPools.java "$CODE_LO" "$CODE_HI"
             -postScript FixResidual.java
@@ -100,6 +117,7 @@ for round in $(seq 1 "$ROUNDS"); do
           -postScript ApplyDataTypes.java /dev/null
           -postScript ClearAnalysisBookmarks.java
           -postScript ScanMisdisasm.java "$CODE_LO" "$CODE_HI"
+          -postScript PtrTargets.java "$CODE_LO" "$DATA_HI" "$CODE_HI"
           -postScript CountErr.java )
 
   rc=0
@@ -119,19 +137,27 @@ for round in $(seq 1 "$ROUNDS"); do
     exit 1
   fi
 
-  # Pin the exact code/data boundary found this round and reuse it as the ceiling.
-  PINNED="$(grep '^INFO  DataSectionClean.java> DATA_LO=' "$LOG" | tail -1 | sed -n 's/.*DATA_LO=\([0-9a-fA-F]*\).*/\1/p')"
+  # Pin the exact boundaries found this round: CODE_HI (prologue pin) is the recovery ceiling
+  # from now on, DATA_LO (end of the last real function, call-target islands included) starts
+  # the data section proper.
+  DLINE="$(grep '^INFO  DataSectionClean.java> DATA_LO=' "$LOG" | tail -1)"
+  PINNED="$(echo "$DLINE" | sed -n 's/.*DATA_LO=\([0-9a-fA-F]*\).*/\1/p')"
+  PIN="$(echo "$DLINE" | sed -n 's/.*CODE_HI=\([0-9a-fA-F]*\).*/\1/p')"
   if [ -n "$PINNED" ]; then
-    printf 'CODE_LO=%s\nDATA_LO=%s\nDATA_HI=%s\n' "$CODE_LO" "$PINNED" "$DATA_HI" > "$SIDECAR"
-    CODE_HI="$PINNED"
+    [ -n "$PIN" ] || PIN="$PINNED"
+    printf 'CODE_LO=%s\nCODE_HI=%s\nDATA_LO=%s\nDATA_HI=%s\n' "$CODE_LO" "$PIN" "$PINNED" "$DATA_HI" > "$SIDECAR"
+    CODE_HI="$PIN"
   fi
 
   ERRS="$(grep 'Error bookmarks=' "$LOG" | tail -1 | sed -n 's/.*Error bookmarks=\([0-9]*\).*/\1/p')"
   FNS="$(grep 'Error bookmarks=' "$LOG" | tail -1 | sed -n 's/.*functions=\([0-9]*\).*/\1/p')"
   MISRUNS="$(grep 'ScanMisdisasm:' "$LOG" | tail -1 | sed -n 's/.*runs=\([0-9]*\).*/\1/p')"
-  work="$(last_pass_work "$LOG")"
-  echo ">> round $round: lastPassWork=$work errorBookmarks=${ERRS:-?} misdisasmRuns=${MISRUNS:-?} functions=${FNS:-?} dataLO=${PINNED:-?}"
-  if [ "$work" -eq 0 ]; then converged=1; break; fi
+  PTRLINE="$(grep 'PtrTargets:' "$LOG" | tail -1)"
+  BADCALLS=$(( $(echo "$PTRLINE" | sed -n 's/.*callTargetsNotCode=\([0-9]*\).*/\1/p' | grep . || echo 1) + $(echo "$PTRLINE" | sed -n 's/.*tailJumpTargetsNotCode=\([0-9]*\).*/\1/p' | grep . || echo 0)
+             + $(echo "$PTRLINE" | sed -n 's/.*poolSlotsInCode=\([0-9]*\).*/\1/p' | grep . || echo 0) + $(echo "$PTRLINE" | sed -n 's/.*tablePtrTargetsNotCode=\([0-9]*\).*/\1/p' | grep . || echo 0) ))
+  work="$(pass_work "$LOG" last)"; first="$(pass_work "$LOG" first)"
+  echo ">> round $round: firstPassWork=$first lastPassWork=$work errorBookmarks=${ERRS:-?} misdisasmRuns=${MISRUNS:-?} callTargetsNotCode=$BADCALLS functions=${FNS:-?} codeHI=${PIN:-?} dataLO=${PINNED:-?}"
+  if [ "$first" -eq 0 ] && [ "$work" -eq 0 ]; then converged=1; break; fi
 done
 
 echo ">> bounds saved: $SIDECAR"
@@ -139,6 +165,7 @@ status=0
 [ "$converged" -eq 1 ] || { echo "!! NOT converged after $ROUNDS rounds — re-run (it resumes) or raise ROUNDS/passes." >&2; status=4; }
 [ "${ERRS:-1}" -eq 0 ] || { echo "!! error bookmarks remain: $ERRS" >&2; status=4; }
 [ "${MISRUNS:-1}" -eq 0 ] || { echo "!! ScanMisdisasm found $MISRUNS mis-disassembled pointer-table run(s) — see the log." >&2; status=4; }
+[ "${BADCALLS:-1}" -eq 0 ] || { echo "!! PtrTargets found $BADCALLS call/tail-jump/table-pointer target(s) that are not code, or pool slots inside code — see the log." >&2; status=4; }
 
 # --- signatures: parameters / return / stack locals on the recovered function set ---
 # One more session, once the function set is final. The recovery sessions run -noanalysis,
@@ -159,5 +186,5 @@ if [ "$status" -eq 0 ] && [ "${SIGS:-1}" != 0 ]; then
   fi
 fi
 
-[ "$status" -eq 0 ] && echo ">> DONE: converged, 0 error bookmarks, 0 mis-disassembled tables, $FNS functions."
+[ "$status" -eq 0 ] && echo ">> DONE: converged, 0 error bookmarks, 0 mis-disassembled tables, 0 call targets outside code, $FNS functions."
 exit "$status"

@@ -81,14 +81,20 @@ public class FunctionizeOrphans extends GhidraScript {
             boolean fromData = false, fromFn = false;
             ReferenceIterator ri = rm.getReferencesTo(a);
             while (ri.hasNext()) {
-                Address from = ri.next().getFromAddress();
+                Reference r = ri.next();
+                RefType rt = r.getReferenceType();
+                if (rt.isRead() || rt.isWrite()) continue;      // an lrw reading it makes it a pool slot, not a function
+                Address from = r.getFromAddress();
                 if (getInstructionAt(from) == null) fromData = true;
                 else if (getFunctionContaining(from) != null) fromFn = true;
             }
             boolean pro = false;
             try {
                 int h = currentProgram.getMemory().getShort(a) & 0xFFFF, h2 = currentProgram.getMemory().getShort(a.add(2)) & 0xFFFF;
-                pro = (h & 0xFE0F) == 0x2400 && (h2 & 0xFFF0) == 0x0070;
+                // frame prologue `subi r0,N; stm rX-r15,(r0)`, or its light flavour `subi r0,N; st.w r15,(r0,k)`
+                // (a function that saves only the link register — what the real code after a pool
+                // decoded as code usually starts with once that junk function is gone)
+                pro = (h & 0xFE0F) == 0x2400 && ((h2 & 0xFFF0) == 0x0070 || (h2 & 0xFF0F) == 0x9F00);
             } catch (Exception e) {}
             if (!(fromData || fromFn || pro)) { left++; continue; }
             if (fromData) dataRefd++; else if (fromFn) fnRefd++; else prologue++;
