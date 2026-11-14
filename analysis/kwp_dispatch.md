@@ -233,13 +233,17 @@ When the gates pass the handler, read from its own disassembly at 0xB1332..0xB13
 Each KWP tick the poll routine sees the handle above 0x5FFF, checks job 0x183, and on completion turns the handle into 0x5183. The housekeeping routine at 0xAFC6A compares the handle against that constant and, with the session at 4, calls `ecu_test_mode_cmd(0x81)`: it sets bit 7 of the register at 0xFB0000 and spins, a software reset into the loader. The application therefore never sends `50 85`; the loader must answer the tester after the reset, and the tester-id byte in the middle of the record is what it would need for that. The loader lives below 0x40000 and is not part of the .0pa, so what it does with the record, including whether it clears or rewrites 0x335 after a successful download, cannot be traced in this project.
 
 ```mermaid
-flowchart LR
-    T[Tester 10 85<br/>security level 5] --> H[kwp_10_start_session<br/>busy check, loader valid?]
-    H -- NRC 0x22 / 0x40 --> T
-    H -- AA, id, 8C --> E[(EEPROM block 24<br/>0x333..0x335)]
-    H -- handle 0x6184 --> P[poll 0xB0370<br/>job 0x183 done → 0x5183]
-    P --> R[0xAFC6A: handle 0x5183, session 4<br/>ecu_test_mode_cmd 0x81<br/>reset into the loader]
-    E -- 31 0A, one byte 0x335 --> T
+flowchart TD
+    T[Tester sends 10 85<br/>request programming session] --> G1{Gate 1: not busy?<br/>no other diag job, standstill}
+    G1 -- no --> N1[NRC 0x22<br/>conditions not correct]
+    G1 -- yes --> G2{Gate 2: security level 5?<br/>granted earlier by 31 08}
+    G2 -- no --> N2[NRC 0x22<br/>not unlocked]
+    G2 -- yes --> G3{Gate 3: loader valid?<br/>signature 66666666 at boot}
+    G3 -- no --> N3[NRC 0x40<br/>download not accepted]
+    G3 -- yes --> W[Write marker AA, tester id, 8C<br/>to EEPROM 0x333..0x335]
+    W -- handle 0x6184, job 0x183 --> P[poll 0xB0370 each tick<br/>job done: handle becomes 0x5183]
+    P --> R[0xAFC6A: handle 0x5183 and session 4<br/>ecu_test_mode_cmd 0x81<br/>reset into the loader, no 50 85]
+    R -.-> L[Later: 31 0A<br/>reads byte 0x335 back]
 ```
 
 Two descriptors beside these are not referenced anywhere in the application: 0xF3358 writes 0x334..0x335 from 0x403322 and 0xF3364 writes 0x3FF from 0x403324. They look like an older layout of the same record.
