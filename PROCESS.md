@@ -60,13 +60,22 @@ a crash can't masquerade as success.
 ## Step 1 — Parse, arch-check & import
 
 ```bash
-tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex> <proj_dir> <name>
+tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> <name>
 ```
 
 - **`parse_0pa.py --reloc 0x48000:0x100000:-0x8000`** — the app is stored 0x8000 above where it
   runs (VBR=0x40000 set by crt0); this writes `<stem>.cpu.hex` at **CPU runtime addresses** next to
   the `.0pa`. *Analyzing at .0pa addresses makes every absolute call land mid-function — don't skip
   the reloc.* If you already have a `.cpu.hex`, pass it and this is skipped.
+- **Raw `.bin` (chip-off / dump-tool image):** converted next to it with `tools/bin2hex.py`
+  (`BASE=<hex>` places it, default `0` = a full-chip dump that starts at the reset vector, which is
+  how the existing images map flash; `BIN_SKIP=<n>` drops a tool header). A dump of only the
+  application sectors is placed with `BASE=40000`. Verified: the M3 app region `.bin` from
+  `parse_0pa.py` converted with `--base 0x40000` matches the `.cpu.hex` byte for byte. **Check the
+  size first** — an MK60E5 application is ~0.75 MB from `0x40000` (the four E9x/E82 images are
+  `0x40000..0xF6A23`), so a file of a few KB is not flash at all: the 4 KB `non_m_mk60_dump.bin`
+  (2026-11-16) is a RAM/stack snapshot (0xA5A5 fill, M·CORE RAM pointers `0x0040xxxx`, loader-region
+  addresses `0x0001xxxx..0x0003xxxx`, no code), and `find_boundary.py` reports 0 prologues on it.
 - **Arch sanity check** (`find_boundary.py`, non-gating) runs *before* the slow import and warns if
   the image doesn't look like M·CORE (see Step 2) — so you don't burn an analysis run on, say, an
   ARM or PowerPC image fed in by mistake.
@@ -329,6 +338,9 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
 
 ## What to watch for
 
+- **A tiny "dump" is not flash.** The arch check is the gate: 0 prologues on a file of a few KB
+  means a config-EEPROM (512 B, bytes inverted) or RAM snapshot was handed in, not the application.
+  Nothing downstream is meaningful on it; get the flash sectors (`0x40000` up, or the whole chip).
 - **"No errors" ≠ correct.** Pointer bytes decode as valid M·CORE and raise no error bookmark, so a
   mis-disassembled table is invisible to `CountErr`. Always run `ScanMisdisasm` (want 0).
 - **"No errors" ≠ complete, either.** Code that is correctly disassembled but owned by no function
@@ -422,6 +434,7 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
 |---|---|
 | `tools/install_mcore.sh` | install/rebuild the patched M·CORE SLEIGH (see SETUP.md) |
 | `tools/parse_0pa.py` | .0pa → `.cpu.hex` (with `--reloc`) + region `.bin`s |
+| `tools/bin2hex.py` | raw `.bin` → Intel HEX at `--base` (default 0), `--skip`/`--length` for tool headers; `mcore_import.sh` calls it for `.bin` inputs |
 | `tools/find_boundary.py` | prologue-scan: arch check + programmatic codeHI/dataHI from a `.cpu.hex` |
 | `tools/port_symbols.py` | signature 1:1 matcher + call-site/table-slot propagation; writes `ported.tsv` + `tail.txt` |
 | `tools/ghidra/mcore_import.sh` | step 1: arch-check + parse + import + `CreateMemBlocks` |

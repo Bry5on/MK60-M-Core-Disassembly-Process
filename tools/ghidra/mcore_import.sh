@@ -4,7 +4,12 @@
 # and add the RAM/MMIO blocks the flash image doesn't carry.
 #
 # Usage:
-#   tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex> <proj_dir> <proj_name>
+#   tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> <proj_name>
+#
+# A raw .bin (chip-off / tool flash dump) is converted to <stem>.cpu.hex next to it with
+# tools/bin2hex.py; BASE (hex, default 0 = full-chip dump from the reset vector) places it,
+# BIN_SKIP drops a dump-tool header. The arch check below then says whether it really is an
+# M-CORE application (a config-EEPROM or RAM snapshot yields 0 prologues).
 # e.g.
 #   tools/ghidra/mcore_import.sh "SP Daten data/DSCM80/7846411A.0pa" alt-images/DSCM80-1M/ghidra_proj MK60_DSCM80
 #
@@ -29,6 +34,12 @@ case "$IMAGE" in
     echo ">> parse_0pa $IMAGE  (--reloc 0x48000:0x100000:-0x8000)"
     python3 -I "$ROOT/tools/parse_0pa.py" "$IMAGE" "$HEXDIR" --reloc 0x48000:0x100000:-0x8000
     HEX="$HEXDIR/$STEM.cpu.hex" ;;
+  *.bin)
+    HEXDIR="$(dirname "$IMAGE")"
+    STEM="$(basename "$IMAGE" .bin)"
+    HEX="$HEXDIR/$STEM.cpu.hex"
+    echo ">> bin2hex $IMAGE  (base 0x${BASE:-0}, skip ${BIN_SKIP:-0})"
+    python3 -I "$ROOT/tools/bin2hex.py" "$IMAGE" "$HEX" --base "0x${BASE:-0}" --skip "${BIN_SKIP:-0}" ;;
   *) HEX="$IMAGE" ;;
 esac
 [ -f "$HEX" ] || { echo "missing $HEX" >&2; exit 1; }
