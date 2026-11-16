@@ -45,7 +45,9 @@ public class RetraceBodies extends GhidraScript {
             spurious.add(e);
         }
         int removed = 0;
-        for (Address e : spurious) { Function f = getFunctionAt(e); if (f != null) { removeFunction(f); removed++; } }
+        StringBuilder rem = new StringBuilder("RetraceBodies: removed entries:");
+        for (Address e : spurious) { Function f = getFunctionAt(e); if (f != null) { removeFunction(f); removed++; if (removed <= 8) rem.append(' ').append(e); } }
+        if (removed > 0) println(rem.toString());
 
         // Step 2: collect truncated functions
         ArrayList<Object[]> trunc = new ArrayList<>();   // {entryOffset, name, bodySize}

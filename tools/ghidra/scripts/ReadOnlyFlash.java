@@ -1,4 +1,4 @@
-// WRITE: mark the flash image blocks (the loader-created, initialized blocks in 0x40000..0xFFFFF)
+// WRITE: mark the flash image blocks (the loader-created, initialized blocks)
 // non-writable. The Intel HEX loader creates every block read-write-execute, and the decompiler
 // refuses to fold a load from writable memory — so every PC-relative literal-pool load shows up
 // as `*piRam0007ab3c` / `(*pcRam0007ab40)(1,0)` instead of the pool's value (`ccp_cro_pending`,
@@ -16,7 +16,7 @@ public class ReadOnlyFlash extends GhidraScript {
         int n = 0, already = 0;
         for (MemoryBlock b : currentProgram.getMemory().getBlocks()) {
             long o = b.getStart().getOffset();
-            if (!b.isInitialized() || o < 0x40000L || o >= 0x100000L) continue;
+            if (!b.isInitialized()) continue;   // every initialized block is flash (RAM/MMIO are uninitialized)
             if (b.isWrite()) { b.setWrite(false); n++; } else already++;
         }
         println("ReadOnlyFlash: flash blocks set read-only=" + n + " alreadyReadOnly=" + already);

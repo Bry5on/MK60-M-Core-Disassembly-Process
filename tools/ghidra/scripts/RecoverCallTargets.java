@@ -55,6 +55,7 @@ public class RecoverCallTargets extends GhidraScript {
     private final ArrayList<long[]> tableRanges = new ArrayList<>();
     private int flowRefs = 0, slotRefs = 0, branchRefs = 0, disasm = 0, fns = 0, islands = 0,
                 skippedTyped = 0, retraced = 0, skippedPoolSlot = 0, skippedUnclean = 0, skippedTable = 0, misaligned = 0, failed = 0, sites = 0;
+    private int entriesRestored = 0;
 
     @Override
     public void run() throws Exception {
@@ -110,6 +111,17 @@ public class RecoverCallTargets extends GhidraScript {
                 if (getInstructionAt(t) == null) {
                     String site = ins.getAddress() + " " + m + " in " + f.getName();
                     if (getInstructionContaining(t) != null) { misaligned++; note("mid-instruction", t, site); continue; }
+                    // The target is already a function entry whose first instruction is gone (a
+                    // scalar typed over it, the body starting right after): an entry must be an
+                    // instruction, so clear the item and disassemble it, nothing else to decide.
+                    Function tf = getFunctionAt(t);
+                    if (tf != null && getInstructionAt(t.add(2)) != null && tf.getBody().contains(t.add(2))) {
+                        Data td = ls.getDataContaining(t);
+                        if (td != null && td.isDefined()) { try { clearListing(td.getAddress(), td.getMaxAddress()); } catch (Exception e) {} }
+                        try { disassemble(t); } catch (Exception e) {}
+                        if (getInstructionAt(t) != null) { disasm++; entriesRestored++; note("entry restored", t, site); }
+                        continue;
+                    }
                     if (inTable(o)) { skippedTable++; note("in pointer table", t, site); continue; }
                     if (!seedable(t)) { skippedTyped++; note("typed/referenced data", t, site); continue; }
                     if (!cleanToTerminator(t, 64)) { skippedUnclean++; note("dirty decode", t, site); continue; }
@@ -158,7 +170,7 @@ public class RecoverCallTargets extends GhidraScript {
                 + " disassembled=" + disasm + " newFunctions=" + fns + " abovePin=" + islands + " bodiesRetraced=" + retraced
                 + " flowRefsAdded=" + flowRefs + " slotRefsAdded=" + slotRefs + " branchRefsAdded=" + branchRefs
                 + " skippedTyped=" + skippedTyped + " skippedUnclean=" + skippedUnclean + " skippedTable=" + skippedTable + " skippedPoolSlot=" + skippedPoolSlot
-                + " misaligned=" + misaligned + " failed=" + failed);
+                + " misaligned=" + misaligned + " entriesRestored=" + entriesRestored + " failed=" + failed);
     }
 
     private final ArrayList<String> notes = new ArrayList<>();

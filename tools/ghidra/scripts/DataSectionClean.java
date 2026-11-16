@@ -5,7 +5,7 @@
 // prologue-less leaf helpers above the last prologue function that RecoverCallTargets seeds);
 // (2) clear every other instruction back to undefined; (3) label each code-referenced table base
 // (same harvest as DataTableInventory: Ghidra refs from outside the section + a 4-aligned pointer
-// scan of 0x40000..P), never one that is code. Prints `DATA_LO=<end of last real fn, protected
+// scan of imageBase..P), never one that is code. Args: `auto DATA_HI [CODE_LO]`. Prints `DATA_LO=<end of last real fn, protected
 // included> CODE_HI=<P> DATA_HI=..` for the driver: DATA_LO starts the data section proper,
 // CODE_HI stays the recovery-window ceiling. Does NOT impose data types — bases stay labeled
 // untyped data. Close the GUI first (project lock). Re-runnable.
@@ -23,6 +23,20 @@ public class DataSectionClean extends GhidraScript {
     // Credit: the documented table/symbol names in KNOWN below are drawn from cmg5461's
     // analysis (7846816A_symbols.md, https://github.com/cmg5461/mk60e5-firmware).
     static final Map<Long,String> KNOWN = new HashMap<>();
+    private long CODE_LO = 0x42000L, FLASH_LO = 0x40000L;
+
+    // Flash base = start of the largest initialized block (the image itself; RAM/MMIO blocks are
+    // uninitialized): 0x40000 on the E5 .0pa images (VBR set by crt0), 0x0 on a full-chip dump of
+    // the earlier MK60 (vector table at the reset address).
+    private long imageBase() {
+        long base = 0, best = -1;
+        for (ghidra.program.model.mem.MemoryBlock b : currentProgram.getMemory().getBlocks()) {
+            if (!b.isInitialized()) continue;
+            if (b.getSize() > best) { best = b.getSize(); base = b.getStart().getOffset(); }
+        }
+        return base;
+    }
+
     static void k(long a,String n){ KNOWN.put(a,n); }
     static {
         k(0xd6da4L,"AYC_feature_enable_per_mode"); k(0xd6e3aL,"veh_override_A_front");
@@ -67,9 +81,13 @@ public class DataSectionClean extends GhidraScript {
         String[] _a = getScriptArgs();
         Function last = null;
         long P, DATA_HI;
+        // CODE_LO (3rd arg, default 0x42000 = E5 layout) is the floor of trusted code; the
+        // pointer scan for table bases starts at the image base.
+        CODE_LO = _a.length >= 3 ? Long.parseLong(_a[2],16) : 0x42000L;
+        FLASH_LO = imageBase();
         if (_a.length >= 2 && _a[0].equalsIgnoreCase("auto")) {  // auto-pin (any image)
             DATA_HI = Long.parseLong(_a[1],16);
-            P = highestPrologueEnd(0x42000L, DATA_HI);
+            P = highestPrologueEnd(CODE_LO, DATA_HI);
             println("DataSectionClean[auto]: prologue pin (end of last prologue fn) = " + Long.toHexString(P));
         } else if (_a.length >= 2) {    // explicit pin, e.g. for a different image
             P = Long.parseLong(_a[0],16); DATA_HI = Long.parseLong(_a[1],16);
@@ -103,7 +121,7 @@ public class DataSectionClean extends GhidraScript {
                 if (t >= P && t < DATA_HI) bases.computeIfAbsent(t,k->new TreeSet<>()).add(f);
             }
         }
-        for (long a = (0x40000L+3)&~3L; a+4 <= P; a += 4) {
+        for (long a = (FLASH_LO+3)&~3L; a+4 <= P; a += 4) {
             long v; try { v = mem.getInt(toAddr(a)) & 0xFFFFFFFFL; } catch (Exception e) { continue; }
             if (v >= P && v < DATA_HI) bases.computeIfAbsent(v,k->new TreeSet<>()).add(a);
         }
@@ -202,7 +220,7 @@ public class DataSectionClean extends GhidraScript {
         HashSet<Long> seen = new HashSet<>();
         for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
             long e = f.getEntryPoint().getOffset();
-            if (e >= 0x42000L && e < P) { work.add(f); seen.add(e); }
+            if (e >= CODE_LO && e < P) { work.add(f); seen.add(e); }
         }
         while (!work.isEmpty()) {
             Function f = work.poll();

@@ -73,9 +73,14 @@ tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> 
   application sectors is placed with `BASE=40000`. Verified: the M3 app region `.bin` from
   `parse_0pa.py` converted with `--base 0x40000` matches the `.cpu.hex` byte for byte. **Check the
   size first** — an MK60E5 application is ~0.75 MB from `0x40000` (the four E9x/E82 images are
-  `0x40000..0xF6A23`), so a file of a few KB is not flash at all: the 4 KB `non_m_mk60_dump.bin`
-  (2026-11-16) is a RAM/stack snapshot (0xA5A5 fill, M·CORE RAM pointers `0x0040xxxx`, loader-region
-  addresses `0x0001xxxx..0x0003xxxx`, no code), and `find_boundary.py` reports 0 prologues on it.
+  `0x40000..0xF6A23`), so a file of a few KB is not flash at all (a 4 KB RAM/stack snapshot with
+  0xA5A5 fill and `0x0040xxxx` pointers was handed in first; `find_boundary.py` gave 0 prologues).
+- **Pre-E5 MK60 (E46-era, `projects/E46_nonM_mk60`, 2026-11-16):** a 256 KB full-chip dump,
+  `BASE=0`. Vector table at `0x0` (reset `0x14DE0`), code from `0x32C` to the last prologue at
+  `0x3CAE8`, calibration tail `0x3CF46..0x40000` (`APT?27F1.DFT` names), no `AZ1…` identification
+  block or part number, no loader marker. Same RAM window `0x400000..0x4017FF`, different
+  peripherals (see the discovered blocks above). Recovers with the same pipeline once the bounds
+  come from the image (`flashLO=0`, `codeLO=0x200`): 416 prologues, 1577 functions, HEALTHY.
 - **Arch sanity check** (`find_boundary.py`, non-gating) runs *before* the slow import and warns if
   the image doesn't look like M·CORE (see Step 2) — so you don't burn an analysis run on, say, an
   ARM or PowerPC image fed in by mistake.
@@ -84,6 +89,13 @@ tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> 
   peripheral refs resolve). These ranges are the same across all MK60E5 variants (same SoC):
   RAM `0x400000–0x423FFF`; MMIO `0xD50000–0xDE0FFF`, `0xE00000–0xE10FFF`, `0xF50000–0xFF0FFF`,
   `0xFFF00000–0xFFF84FFF` (volatile).
+  Those are the E5 SoC. The script then **discovers** the rest from the image: every 4 KiB page in
+  the SoC's 24-bit space (or the `0xFFF00000` window) that ≥ 16 aligned pointer words name, merged
+  into runs and mapped volatile as `MMIO_auto_<addr>` (values outside that space are instruction
+  pairs, not pointers — an earlier, looser rule mapped 786 phantom pages). The pre-E5 MK60 dump
+  (`projects/E46_nonM_mk60`) gets ten of them: `0xCF0000`, `0xCF2000`, `0xCF6000–0xCF7FFF`,
+  `0xCFF000`, `0xEF8000`, `0xEFF000`, `0xFF8000`, `0xFFF000`, `0xFFFF8000`, `0xFFFFF000`; the E5
+  images only re-find pages the fixed list covers.
 
 The program's name inside the project is the `.cpu.hex` basename (e.g. `7846816A.cpu.hex`).
 
@@ -121,14 +133,21 @@ data section proper; between them sit the few prologue-less **call-target island
 below (on the four MK60E5 images recovered so far, 9–10 small helpers in ~5 KB). The driver
 determines all of them for *any* image:
 
-- **`codeLO`** is always `0x42000` (below it, `0x40000–0x41FFF` is the VBR table + calibration
-  directory + OSEK init stubs — handled separately by `OsInit.java` if needed).
+- **`flashLO`** is the image base: the start of the largest initialized block (`0x40000` on the
+  E5 `.0pa` images, whose app segment starts at the VBR crt0 sets; `0x0` on a full-chip dump of the
+  earlier MK60, whose vector table sits at the reset address). The Java passes derive it the same
+  way (`imageBase()`), so nothing hardcodes `0x40000`: the VBR vector table, the pointer scans for
+  table bases, the read-only flash marking and the signature pass all start there.
+- **`codeLO`** is `0x42000` when the image spans it (E5 layout: `0x40000–0x41FFF` is the VBR table
+  + calibration directory + OSEK init stubs — handled separately by `OsInit.java` if needed), else
+  `flashLO + 0x200`, the first byte after the 128-entry vector table (`find_boundary.py --code-lo`
+  overrides). Everything from `flashLO` up to it is left to auto-analysis.
 - **`find_boundary.py`** reads the `.cpu.hex` and scans for the M·CORE frame prologue —
   `subi r0,N` (`h & 0xFE0F == 0x2400`) immediately followed by `stm rX-r15,(r0)`
   (`h & 0xFFF0 == 0x0070`). This pair is dense and continuous through code and essentially never
   occurs in the calibration data above it (two constrained big-endian halfwords in a row,
   p ≈ 1e-6 per position). It reports:
-  - **`dataHI`** = end of the contiguous image segment that contains `codeLO` (the stray low-/high-
+  - **`dataHI`** = end of the largest contiguous image segment (the stray low-/high-
     memory config blocks are excluded), and
   - **`codeHI`** = a recovery ceiling a few KB above the highest prologue (function bodies/pools run
     above their entry). It also prints a prologue histogram and an **arch verdict** — too few
@@ -148,7 +167,7 @@ determines all of them for *any* image:
   cleared to `??` every round and their entries labelled `tbl_…` table bases, and because the
   recovery window stopped at the pin nothing ever brought them back.
 
-- The pins are written to **`<proj_dir>/<prog>.bounds`** (`CODE_LO`/`CODE_HI`/`DATA_LO`/`DATA_HI`;
+- The pins are written to **`<proj_dir>/<prog>.bounds`** (`FLASH_LO`/`CODE_LO`/`CODE_HI`/`DATA_LO`/`DATA_HI`;
   an older sidecar with only `DATA_LO` is read as the prologue pin). Every later round and re-run
   uses `CODE_HI` as the recovery ceiling, because `find_boundary`'s `codeHI` is only an estimate a
   few KB *above* the real boundary: without the sidecar each run re-disassembles that gap and
@@ -338,6 +357,20 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
 
 ## What to watch for
 
+- **An absolute `ld.b`/`ld.h` of a small in-flash table is not a pool slot.** `FixLiteralPools`
+  harvests absolute in-flash reads as pool words too; on the pre-E5 image a `ld.h` at `+0xE` of a
+  four-entry RAM-pointer table (`0x650..0x65F`) made `0x65E` a "slot", and clearing its 4 bytes
+  wiped the first instruction of the function at `0x660` every pass — `ApplyDataTypes` then typed
+  the hole `uint8_t`, `RecoverPrologues` re-disassembled it, and the driver never converged
+  (`firstPassWork=2` forever). Absolute read targets now have to be 4-aligned word reads, and a
+  slot whose 4 bytes overlap a prologue function's entry is never cleared. `RecoverCallTargets`
+  and `RecoverPrologues` also restore an entry that has lost its instruction (function exists,
+  body starts at `+2`) instead of refusing it as dirty/typed.
+- **A pool constant that equals a flash address vouches for nothing.** `0x338F4` on the pre-E5
+  image holds `0x8F38` (a constant) and Ghidra typed it as a pointer, so the two-instruction junk
+  function on the pool slot at `0x8F38` counted as "referenced from data" and stayed trusted
+  (`poolSlotsInCode=1`). An entry that an `lrw`/`jsri`/`jmpi` of another function READS is a pool
+  word whatever else points at it (`candidateReal` in `FixLiteralPools`).
 - **A tiny "dump" is not flash.** The arch check is the gate: 0 prologues on a file of a few KB
   means a config-EEPROM (512 B, bytes inverted) or RAM snapshot was handed in, not the application.
   Nothing downstream is meaningful on it; get the flash sectors (`0x40000` up, or the whole chip).
@@ -435,10 +468,10 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
 | `tools/install_mcore.sh` | install/rebuild the patched M·CORE SLEIGH (see SETUP.md) |
 | `tools/parse_0pa.py` | .0pa → `.cpu.hex` (with `--reloc`) + region `.bin`s |
 | `tools/bin2hex.py` | raw `.bin` → Intel HEX at `--base` (default 0), `--skip`/`--length` for tool headers; `mcore_import.sh` calls it for `.bin` inputs |
-| `tools/find_boundary.py` | prologue-scan: arch check + programmatic codeHI/dataHI from a `.cpu.hex` |
+| `tools/find_boundary.py` | prologue-scan: arch check + programmatic flashLO/codeLO/codeHI/dataHI from a `.cpu.hex` (`--code-lo` overrides) |
 | `tools/port_symbols.py` | signature 1:1 matcher + call-site/table-slot propagation; writes `ported.tsv` + `tail.txt` |
 | `tools/ghidra/mcore_import.sh` | step 1: arch-check + parse + import + `CreateMemBlocks` |
-| `tools/ghidra/mcore_recover.sh` | step 2: auto-bounds + recover + finish, repeated until a round starts clean; writes `<prog>.bounds` (`CODE_LO/CODE_HI/DATA_LO/DATA_HI`) |
+| `tools/ghidra/mcore_recover.sh` | step 2: auto-bounds + recover + finish, repeated until a round starts clean; writes `<prog>.bounds` (`FLASH_LO/CODE_LO/CODE_HI/DATA_LO/DATA_HI`) |
 | `tools/ghidra/mcore_port.sh` | step 3: `ExportSigs` ×2 + match + propagate + `ApplyPortedNames` |
 | `tools/ghidra/mcore_verify.sh` | V: read-only health check + memory-map numbers in one run (snapshot; GUI may be open) |
 | `tools/ghidra/dump.sh <proj_dir> <name> <cpu_hex> ADDR:N …` | read-only disassembly dump from a snapshot (GUI may be open) |
@@ -450,7 +483,7 @@ The drivers run these for you; listed so you can run one on its own. Bound-confi
 
 | script | step / role | args |
 |---|---|---|
-| `CreateMemBlocks.java` | 1 — add RAM/MMIO blocks | — |
+| `CreateMemBlocks.java` | 1 — add RAM/MMIO blocks (E5 fixed list + pages discovered from pointer density) | — |
 | `FixLiteralPools.java` | 2 — define pools (slots by reference or encoding), remove pools decoded as code, clear pool-as-code red | `[LO HI]` |
 | `FixResidual.java` | 2 — mop up padding / pool edges | — |
 | `RecoverRefCode.java` | 2 — code reached via unmaterialized pointers | `LO HI` |
@@ -462,7 +495,7 @@ The drivers run these for you; listed so you can run one on its own. Bound-confi
 | `FixJumpTables.java` | 2 — revert table-as-code, redo jump-table targets | `LO HI` |
 | `RetraceBodies.java` | 2 — drop spurious continuations, re-trace bodies | `LO HI` |
 | `FunctionizeOrphans.java` | 2 — functionize referenced / prologue-started orphan code | `LO HI` |
-| `DataSectionClean.java` | 2 — pin codeHI + dataLO, delete spurious fns (keep prologue + protected), label tables | `auto DATA_HI` \| `PIN DATA_HI` |
+| `DataSectionClean.java` | 2 — pin codeHI + dataLO, delete spurious fns (keep prologue + protected), label tables | `auto DATA_HI [CODE_LO]` \| `PIN DATA_HI` |
 | `FixStorage2.java` | 2 — assign return storage | — |
 | `ClassifyData.java` | 2 — size referenced undefined data | — |
 | `ApplyDataTypes.java` | 2 — undefined → `uint8/16/32_t` typedefs | `<types.tsv or /dev/null>` |

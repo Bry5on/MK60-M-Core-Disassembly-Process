@@ -17,7 +17,7 @@
 # chain can expose seeds the loop never saw, so the driver runs further ROUNDS (default 4)
 # until a round STARTS with nothing to do (its first pass creates no function and reverts
 # nothing): the project left behind is then a fixpoint of loop + finish, and a re-run is a no-op. Once DataSectionClean has pinned the boundaries,
-# they are saved to <proj_dir>/<prog>.bounds (CODE_LO/CODE_HI/DATA_LO/DATA_HI) and CODE_HI is
+# they are saved to <proj_dir>/<prog>.bounds (FLASH_LO/CODE_LO/CODE_HI/DATA_LO/DATA_HI) and CODE_HI is
 # reused as the recovery ceiling for every later round and re-run, so the top of the data
 # section is not re-disassembled and re-cleaned each time. Delete the sidecar (or set CODE_HI)
 # to start from the estimate again.
@@ -53,10 +53,14 @@ echo ">> $BND"
 if echo "$BND" | grep -q 'arch=unknown'; then
   echo "!! this image does not look like M·CORE (see find_boundary.py)." >&2
   [ "${FORCE:-}" = 1 ] || { echo "!! aborting; set FORCE=1 to override, or pass the right image." >&2; exit 3; }
-  BND="BOUNDS codeLO=0x42000 codeHI=0xd7000 dataHI=0xf6a24"
+  BND="BOUNDS flashLO=0x40000 codeLO=0x42000 codeHI=0xd7000 dataHI=0xf6a24"
 fi
 pick(){ echo "$BND" | sed -n "s/.*$1=0x\([0-9a-fA-F]*\).*/\1/p"; }
 CODE_LO="${CODE_LO:-$(pick codeLO)}"; DATA_HI="${DATA_HI:-$(pick dataHI)}"
+# FLASH_LO = image base (VBR): 40000 on the E5 .0pa images, 0 on a full-chip dump of the
+# earlier MK60. Everything below CODE_LO down to it is left to auto-analysis; the signature
+# pass and the verifier's low-region stats start there.
+FLASH_LO="${FLASH_LO:-$(pick flashLO)}"; FLASH_LO="${FLASH_LO:-40000}"
 DLO="${DATA_LO:-auto}"
 if [ -z "${CODE_HI:-}" ] && [ -f "$SIDECAR" ]; then
   # CODE_HI (prologue pin) from a current sidecar; an older one carries only DATA_LO, which was that pin.
@@ -65,7 +69,7 @@ if [ -z "${CODE_HI:-}" ] && [ -f "$SIDECAR" ]; then
   echo ">> reusing pinned CODE_HI=$CODE_HI from $SIDECAR as the recovery ceiling"
 fi
 CODE_HI="${CODE_HI:-$(pick codeHI)}"
-echo ">> bounds: codeLO=$CODE_LO codeHI=$CODE_HI dataLO=$DLO dataHI=$DATA_HI  passes=$PASSES rounds<=$ROUNDS"
+echo ">> bounds: flashLO=$FLASH_LO codeLO=$CODE_LO codeHI=$CODE_HI dataLO=$DLO dataHI=$DATA_HI  passes=$PASSES rounds<=$ROUNDS"
 
 # The per-script summary lines worth showing; the full log is kept per round.
 SHOW='Recover|FixLiteralPools:|FixJumpTables:|FixResidual:|RetraceBodies:|FunctionizeOrphans:|DataSectionClean|DATA_LO=|FixStorage2:|ClassifyData:|ApplyDataTypes:|ClearAnalysisBookmarks:|ScanMisdisasm:|PtrTargets:|CountErr:|Error bookmarks=|Unable to lock|ERROR|Exception'
@@ -111,7 +115,7 @@ for round in $(seq 1 "$ROUNDS"); do
             -postScript RetraceBodies.java "$CODE_LO" "$CODE_HI"
             -postScript FunctionizeOrphans.java "$CODE_LO" "$CODE_HI" )
   done
-  ARGS+=( -postScript DataSectionClean.java "$DLO" "$DATA_HI"
+  ARGS+=( -postScript DataSectionClean.java "$DLO" "$DATA_HI" "$CODE_LO"
           -postScript FixStorage2.java
           -postScript ClassifyData.java
           -postScript ApplyDataTypes.java /dev/null
@@ -145,7 +149,7 @@ for round in $(seq 1 "$ROUNDS"); do
   PIN="$(echo "$DLINE" | sed -n 's/.*CODE_HI=\([0-9a-fA-F]*\).*/\1/p')"
   if [ -n "$PINNED" ]; then
     [ -n "$PIN" ] || PIN="$PINNED"
-    printf 'CODE_LO=%s\nCODE_HI=%s\nDATA_LO=%s\nDATA_HI=%s\n' "$CODE_LO" "$PIN" "$PINNED" "$DATA_HI" > "$SIDECAR"
+    printf 'FLASH_LO=%s\nCODE_LO=%s\nCODE_HI=%s\nDATA_LO=%s\nDATA_HI=%s\n' "$FLASH_LO" "$CODE_LO" "$PIN" "$PINNED" "$DATA_HI" > "$SIDECAR"
     CODE_HI="$PIN"
   fi
 
@@ -173,12 +177,12 @@ status=0
 # arguments. Ghidra's own stack + decompiler-parameter-ID commands; idempotent. SIGS=0 skips.
 if [ "$status" -eq 0 ] && [ "${SIGS:-1}" != 0 ]; then
   LOG="$PROJ_DIR/$PROG.signatures.log"
-  echo ">> signatures: flash read-only, then stack frames + decompiler parameter ID over 40000..$DATA_HI  (log: $LOG)"
+  echo ">> signatures: flash read-only, then stack frames + decompiler parameter ID over $FLASH_LO..$DATA_HI  (log: $LOG)"
   rc=0
   "$HEADLESS" "$PROJ_DIR" "$NAME" \
       -process "$PROG" -noanalysis \
       -scriptPath "$ROOT/tools/ghidra/scripts" \
-      -postScript ReadOnlyFlash.java -postScript AnalyzeSignatures.java 40000 "$DATA_HI" "${SIG_TIMEOUT:-60}" > "$LOG" 2>&1 || rc=$?
+      -postScript ReadOnlyFlash.java -postScript AnalyzeSignatures.java "$FLASH_LO" "$DATA_HI" "${SIG_TIMEOUT:-60}" > "$LOG" 2>&1 || rc=$?
   grep -E "ReadOnlyFlash:|AnalyzeSignatures:|Unable to lock|ERROR|Exception" "$LOG" | grep -vE '^INFO  (REPORT|SCRIPT): ' \
     | sed -E 's/^INFO  [A-Za-z0-9]+\.java> //; s/ \(GhidraScript\) *$//' || true
   if [ "$rc" -ne 0 ] || ! grep -q 'AnalyzeSignatures:' "$LOG"; then

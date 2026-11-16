@@ -27,6 +27,7 @@ export JAVA_HOME="${JAVA_HOME:-/Library/Java/JavaVirtualMachines/temurin-25.jdk/
 SIDECAR="$PROJ_DIR/$PROG.bounds"
 
 if [ -f "$SIDECAR" ]; then
+  FLASH_LO="$(sed -n 's/^FLASH_LO=\([0-9a-fA-F]*\).*/\1/p' "$SIDECAR")"
   CODE_LO="$(sed -n 's/^CODE_LO=\([0-9a-fA-F]*\).*/\1/p' "$SIDECAR")"
   CODE_HI="$(sed -n 's/^CODE_HI=\([0-9a-fA-F]*\).*/\1/p' "$SIDECAR")"
   DATA_LO="$(sed -n 's/^DATA_LO=\([0-9a-fA-F]*\).*/\1/p' "$SIDECAR")"
@@ -36,10 +37,12 @@ if [ -f "$SIDECAR" ]; then
 else
   BND="$(python3 -I "$ROOT/tools/find_boundary.py" "$HEX" | grep '^BOUNDS' || true)"
   pick(){ echo "$BND" | sed -n "s/.*$1=0x\([0-9a-fA-F]*\).*/\1/p"; }
-  CODE_LO="$(pick codeLO)"; DATA_LO="$(pick codeHI)"; DATA_HI="$(pick dataHI)"; CODE_HI="$DATA_LO"
+  FLASH_LO="$(pick flashLO)"; CODE_LO="$(pick codeLO)"; DATA_LO="$(pick codeHI)"; DATA_HI="$(pick dataHI)"; CODE_HI="$DATA_LO"
   echo ">> no $SIDECAR (mcore_recover.sh not run yet?); using find_boundary estimate: codeLO=$CODE_LO codeHI=$DATA_LO dataHI=$DATA_HI"
 fi
 [ -n "$CODE_LO" ] && [ -n "$DATA_LO" ] && [ -n "$DATA_HI" ] || { echo "!! could not determine bounds" >&2; exit 1; }
+FLASH_LO="${FLASH_LO:-40000}"     # image base (VBR); pre-FLASH_LO sidecars are E5 images
+FLASH_LO6="$(printf '%06x' "0x$FLASH_LO")"
 
 SNAP="$(mktemp -d "${TMPDIR:-/tmp}/mk60snap.XXXXXX")"
 trap 'rm -rf "$SNAP"' EXIT
@@ -54,7 +57,7 @@ rc=0
     -postScript CountErr.java \
     -postScript ScanMisdisasm.java "$CODE_LO" "$DATA_LO" \
     -postScript ImageMap.java \
-    -postScript RegionStats.java 40000 "$CODE_LO" \
+    -postScript RegionStats.java "$FLASH_LO" "$CODE_LO" \
     -postScript RegionStats.java "$CODE_LO" "$DATA_LO" \
     -postScript RegionStats.java "$DATA_LO" "$DATA_HI" \
     -postScript UndefPrologues.java "$CODE_LO" "$DATA_LO" \
@@ -79,7 +82,7 @@ FNS="$(out CountErr | sed -n 's/.*functions=\([0-9]*\).*/\1/p')"
 MISRUNS="$(out ScanMisdisasm | sed -n 's/.*runs=\([0-9]*\).*/\1/p')"
 BASES="$(out DataTableInventory | sed -n 's/^TOTAL_BASES\t\([0-9]*\).*/\1/p')"
 DATACODE="$(out RegionStats | grep "^RegionStats 0*${DATA_LO}-" | sed -n 's/.*instrBytes=\([0-9]*\).*/\1/p')"
-LOWFNS="$(out RegionStats | grep "^RegionStats 040000-" | sed -n 's/.*functions=\([0-9]*\).*/\1/p')"
+LOWFNS="$(out RegionStats | grep "^RegionStats ${FLASH_LO6}-" | sed -n 's/.*functions=\([0-9]*\).*/\1/p')"
 CODELINE="$(out RegionStats | grep "^RegionStats 0*${CODE_LO}-")"
 ORPHAN="$(echo "$CODELINE" | sed -n 's/.*orphanInstrBytes=\([0-9]*\).*/\1/p')"
 ORPHANREFD="$(echo "$CODELINE" | sed -n 's/.*orphanRefdRuns=\([0-9]*\).*/\1/p')"
@@ -108,7 +111,7 @@ printf '%-42s %s   (call sites whose target is typed data / dirty decode: junk d
 printf '%-42s %s   (want 0; a literal pool decoded as code)\n' "pool slots inside instructions" "${SLOTCODE:-?}"
 printf '%-42s %s of %s   (want 0; untyped-table code pointers at function-like raw bytes)\n' "table pointers to undisassembled functions" "${TABLEBAD:-?}" "${TABLEWORDS:-?}"
 printf '%-42s %s   (from the prologue pin $CODE_HI up)\n' "code-referenced table bases" "${BASES:-?}"
-printf '%-42s %s   (auto-analysis noise below codeLO; left alone by design)\n' "functions in 40000..$CODE_LO" "${LOWFNS:-?}"
+printf '%-42s %s   (auto-analysis noise below codeLO; left alone by design)\n' "functions in $FLASH_LO..$CODE_LO" "${LOWFNS:-?}"
 
 status=0
 [ "${ERRS:-1}" -eq 0 ] || status=4

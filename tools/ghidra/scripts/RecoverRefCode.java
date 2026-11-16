@@ -4,7 +4,8 @@
 // AND begins with a function prologue (subi r0,N; stm rX-r15,(r0)) or is a clean leaf that
 // reaches a return. Excludes anything read/written as data (a variable) and anything inside
 // a pointer-table region. Disassembles + functionizes; RecoverFlowCode then cascades.
-// Also seeds the VBR exception-vector table (VBR=0x40000 set by crt0; 128 x 4-byte entries).
+// Also seeds the VBR exception-vector table (128 x 4-byte entries at the image base: VBR=0x40000
+// set by crt0 on the E5 images, 0x0 on a full-chip dump of the earlier MK60).
 // Bit 0 of an entry is the M-CORE alternate-register-file flag, NOT part of the address, so
 // entries are odd: mask it, record a DATA reference slot -> handler, clear whatever auto-sized
 // data ClassifyData put on the handler's first bytes (the odd address made it a uint8_t that
@@ -37,13 +38,14 @@ public class RecoverRefCode extends GhidraScript {
         ArrayList<Long> seeds = new ArrayList<>();
         int flowSeeds = 0, ptrSeeds = 0, vecSeeds = 0, fns0 = 0;
 
-        // VBR vector table: 0x40000 + 4*i, i < 128; entry = handler | AF-flag(bit 0)
+        // VBR vector table: imageBase + 4*i, i < 128; entry = handler | AF-flag(bit 0)
+        final long VBR = imageBase();
         for (int i = 0; i < 128; i++) {
-            Address slot = toAddr(0x40000L + 4L * i);
+            Address slot = toAddr(VBR + 4L * i);
             long v; try { v = mem.getInt(slot) & 0xFFFFFFFFL; } catch (Exception e) { continue; }
             if (v == 0 || v == 0xFFFFFFFFL) continue;
             long tv = v & ~1L;
-            if (tv < 0x40000L || tv >= HI) continue;
+            if (tv < VBR || tv >= HI) continue;
             Address t = toAddr(tv);
             try { rm.addMemoryReference(slot, t, RefType.DATA, SourceType.ANALYSIS, 0); } catch (Exception e) {}
             if (getFunctionAt(t) != null) continue;
@@ -91,6 +93,19 @@ public class RecoverRefCode extends GhidraScript {
         }
         println("RecoverRefCode: flowSeeds=" + flowSeeds + " ptrSeeds=" + ptrSeeds + " vectorSeeds=" + vecSeeds
                 + " disassembled=" + made + " newFunctions=" + fns);
+    }
+
+
+    // Flash base = start of the largest initialized block (the image itself; RAM/MMIO blocks are
+    // uninitialized): 0x40000 on the E5 .0pa images (VBR set by crt0), 0x0 on a full-chip dump of
+    // the earlier MK60 (vector table at the reset address).
+    private long imageBase() {
+        long base = 0, best = -1;
+        for (ghidra.program.model.mem.MemoryBlock b : currentProgram.getMemory().getBlocks()) {
+            if (!b.isInitialized()) continue;
+            if (b.getSize() > best) { best = b.getSize(); base = b.getStart().getOffset(); }
+        }
+        return base;
     }
 
     // clean decode for >=n instrs (0 invalid), or reaches a terminator cleanly first

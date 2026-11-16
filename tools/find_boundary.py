@@ -20,8 +20,9 @@ position). So:
   * if there are very few prologues at all, the image is probably NOT M·CORE — warn,
     don't proceed as if it were (an ARM/PPC/SH image fed in by mistake wastes hours).
 
-Emits a `BOUNDS ...` line (machine-readable) and a ready-to-run `mcore_recover.sh`
-command. Run isolated:  python3 -I tools/find_boundary.py <image.cpu.hex>
+Emits a `BOUNDS ...` line (machine-readable: flashLO = image base, codeLO, codeHI, dataHI)
+and a ready-to-run `mcore_recover.sh` command.
+Run isolated:  python3 -I tools/find_boundary.py <image.cpu.hex> [--code-lo 0xADDR]
 stdlib only; read-only.
 
 Credit: the function-prologue seed heuristic and the idea of finding the code end from
@@ -31,7 +32,8 @@ against the M·CORE encoding (binutils opcodes/mcore-opc.h); no code was copied.
 """
 import sys, collections
 
-CODE_LO = 0x42000          # constant for MK60E5: VBR table + calibration dir sit below this
+E5_CODE_LO = 0x42000       # MK60E5 .0pa images: VBR table + calibration dir sit below this
+VECTOR_TABLE = 0x200       # 128 x 4-byte exception vectors at the image base (VBR) on any M-CORE
 BUCKET = 0x2000
 GAP = 0x1000               # addresses this far apart start a new memory segment
 
@@ -62,8 +64,8 @@ def parse_ihex(path):
 
 
 def main_segment(mem):
-    """The contiguous segment (allowing <GAP gaps) that contains CODE_LO — the main
-    code+data image, not the stray low/high config blocks."""
+    """The largest contiguous segment (allowing <GAP gaps) — the main code+data image,
+    not the stray low/high config blocks."""
     addrs = sorted(mem)
     if not addrs:
         sys.exit("no data records in hex")
@@ -74,10 +76,18 @@ def main_segment(mem):
             start = a
         prev = a
     segs.append((start, prev))
-    for lo, hi in segs:
-        if lo <= CODE_LO <= hi:
-            return lo, hi
-    return segs[0]            # fallback: first/largest
+    return max(segs, key=lambda s: s[1] - s[0])
+
+
+def code_lo_for(seg_lo, seg_hi, override=None):
+    """Where the prologue scan / recovery window starts. E5 layout (the image spans 0x42000):
+    the fixed 0x42000 floor; otherwise (a full-chip dump mapped at its own base) the first
+    address after the vector table at the image base. `--code-lo 0x…` overrides."""
+    if override is not None:
+        return override
+    if seg_lo <= E5_CODE_LO <= seg_hi:
+        return E5_CODE_LO
+    return seg_lo + VECTOR_TABLE
 
 
 def be16(mem, a):
@@ -91,8 +101,12 @@ def main():
     if len(sys.argv) < 2:
         sys.exit("usage: find_boundary.py <image.cpu.hex>")
     mem = parse_ihex(sys.argv[1])
+    override = None
+    if "--code-lo" in sys.argv:
+        override = int(sys.argv[sys.argv.index("--code-lo") + 1], 16)
     seg_lo, seg_hi = main_segment(mem)
     data_hi = (seg_hi + 1 + 1) & ~1                  # end of image, 2-byte aligned
+    CODE_LO = code_lo_for(seg_lo, seg_hi, override)
 
     # prologue scan over the code-and-data span
     buckets = collections.Counter()
@@ -109,7 +123,8 @@ def main():
 
     total = len(prologues)
     print("=== M·CORE prologue scan of %s ===" % sys.argv[1])
-    print("image segment: 0x%x .. 0x%x   (dataHI = 0x%x)" % (seg_lo, seg_hi, data_hi))
+    print("image segment: 0x%x .. 0x%x   (flashLO = 0x%x, codeLO = 0x%x, dataHI = 0x%x)"
+          % (seg_lo, seg_hi, seg_lo, CODE_LO, data_hi))
     print("prologues found: %d" % total)
     for b in sorted(buckets):
         bar = "#" * min(60, buckets[b])
@@ -137,7 +152,7 @@ def main():
     print("NOTE: the exact dataLO = end of the last real function's body is pinned")
     print("      Ghidra-side (DataSectionClean `auto`); mcore_recover.sh does this for you.")
     print()
-    print("BOUNDS arch=mcore codeLO=0x%x codeHI=0x%x dataHI=0x%x" % (CODE_LO, code_hi, data_hi))
+    print("BOUNDS arch=mcore flashLO=0x%x codeLO=0x%x codeHI=0x%x dataHI=0x%x" % (seg_lo, CODE_LO, code_hi, data_hi))
     print()
     print("# recommended (auto-bounds):")
     print("#   tools/ghidra/mcore_recover.sh <proj_dir> <name> %s" % sys.argv[1])

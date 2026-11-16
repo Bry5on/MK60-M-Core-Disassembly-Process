@@ -72,7 +72,7 @@ public class ExportSigs extends GhidraScript {
                     Data d = slot == null ? null : lst.getDataAt(slot);
                     Address tb = null;
                     if (d != null && d.isPointer() && d.getValue() instanceof Address) tb = (Address) d.getValue();
-                    else if (slot != null) { try { long v = mem.getInt(slot) & 0xffffffffL; if (v >= 0x40000L && v < 0x100000L) tb = toAddr(v); } catch (Exception ex) {} }
+                    else if (slot != null) { try { long v = mem.getInt(slot) & 0xffffffffL; if (v < 0x100000L && mem.getBlock(toAddr(v)) != null && mem.getBlock(toAddr(v)).isInitialized()) tb = toAddr(v); } catch (Exception ex) {} }
                     String tbl = tb == null ? null : tableAt(tb);
                     if (tbl != null) {
                         if (e.length() > 0) e.append(';');

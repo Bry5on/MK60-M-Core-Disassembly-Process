@@ -10,7 +10,7 @@ import ghidra.app.util.PseudoInstruction;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.Undefined;
 import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.Memory;
+import ghidra.program.model.mem.*;
 import java.util.*;
 
 public class RecoverCodeRuns extends GhidraScript {
@@ -19,7 +19,10 @@ public class RecoverCodeRuns extends GhidraScript {
     private Memory mem;
 
     private boolean addr(long v) {
-        return (v >= 0x40000L && v < 0x100000L) || (v >= 0x400000L && v < 0x424000L) || (v >= 0xD00000L && v < 0x1000000L);
+        if ((v >= 0x400000L && v < 0x424000L) || (v >= 0xD00000L && v < 0x1000000L)) return true;
+        if (v >= 0x100000L) return false;
+        MemoryBlock b = mem.getBlock(toAddr(v));      // flash = any initialized block (image base 0x40000 or 0x0)
+        return b != null && b.isInitialized();
     }
 
     @Override

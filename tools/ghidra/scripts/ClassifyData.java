@@ -70,7 +70,10 @@ public class ClassifyData extends GhidraScript {
 
         // ---- Q3: delete VBR=0 default vector symbols at 0x0-0x4C ----
         int dropped = 0;
-        for (long off = 0x0; off <= 0x4C; off += 4) {
+        long base = 0, best = -1;
+        for (ghidra.program.model.mem.MemoryBlock b : mem.getBlocks()) if (b.isInitialized() && b.getSize() > best) { best = b.getSize(); base = b.getStart().getOffset(); }
+        // on a full-chip dump mapped at 0 (VBR=0) those symbols name the real vectors: keep them
+        for (long off = 0x0; off <= 0x4C && base != 0; off += 4) {
             for (Symbol s : st.getSymbols(toAddr(off))) {
                 if (s.getSource() != SourceType.USER_DEFINED) { s.delete(); dropped++; }
             }

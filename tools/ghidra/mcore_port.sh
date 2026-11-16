@@ -82,6 +82,7 @@ echo ">> apply annotations to target (same image only; writes back)"
 DST_BOUNDS="$DP/$DPROG.bounds"
 DST_DATA_LO="$( [ -f "$DST_BOUNDS" ] && sed -n 's/^DATA_LO=\([0-9a-fA-F]*\).*/\1/p' "$DST_BOUNDS" || true )"
 DST_DATA_HI="$( [ -f "$DST_BOUNDS" ] && sed -n 's/^DATA_HI=\([0-9a-fA-F]*\).*/\1/p' "$DST_BOUNDS" || true )"
+DST_FLASH_LO="$( [ -f "$DST_BOUNDS" ] && sed -n 's/^FLASH_LO=\([0-9a-fA-F]*\).*/\1/p' "$DST_BOUNDS" || true )"
 [ -n "$DST_DATA_LO" ] || echo ">> note: no $DST_BOUNDS — reference entries in the data section cannot be excluded"
 ANN_LOG="$WORK/apply_annotations.log"; rc=0
 "$HEADLESS" "$DP" "$DN" -process "$DPROG" -noanalysis -scriptPath "$SCR" \
@@ -96,7 +97,7 @@ if [ "${SIGS:-1}" != 0 ]; then
   echo ">> signatures on the target (params / return / locals for new entries)"
   SIG_LOG="$WORK/signatures.log"; rc=0
   "$HEADLESS" "$DP" "$DN" -process "$DPROG" -noanalysis -scriptPath "$SCR" \
-      -postScript ReadOnlyFlash.java -postScript AnalyzeSignatures.java 40000 "${DST_DATA_HI:-f6a24}" "${SIG_TIMEOUT:-60}" > "$SIG_LOG" 2>&1 || rc=$?
+      -postScript ReadOnlyFlash.java -postScript AnalyzeSignatures.java "${DST_FLASH_LO:-40000}" "${DST_DATA_HI:-f6a24}" "${SIG_TIMEOUT:-60}" > "$SIG_LOG" 2>&1 || rc=$?
   grep -E "ReadOnlyFlash:|AnalyzeSignatures:|Unable to lock|ERROR" "$SIG_LOG" | sed -E 's/^INFO  [A-Za-z0-9]+\.java> //; s/ \(GhidraScript\) *$//' || true
   if [ "$rc" -ne 0 ] || ! grep -q 'AnalyzeSignatures:' "$SIG_LOG"; then
     echo "!! signature pass failed (headless exit $rc) — see $SIG_LOG" >&2; exit 1

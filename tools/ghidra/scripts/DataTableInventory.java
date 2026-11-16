@@ -34,7 +34,9 @@ public class DataTableInventory extends GhidraScript {
             }
         }
         // 2) pointer-word scan of the code region (4-aligned)
-        long scanLo = 0x40000L, scanHi = DATA_LO;
+        long scanLo = 0, scanHi = DATA_LO;   // from the image base (largest initialized block)
+        long best = -1;
+        for (MemoryBlock b : mem.getBlocks()) if (b.isInitialized() && b.getSize() > best) { best = b.getSize(); scanLo = b.getStart().getOffset(); }
         for (long a = (scanLo+3)&~3L; a+4 <= scanHi; a += 4) {
             long v; try { v = mem.getInt(toAddr(a)) & 0xFFFFFFFFL; } catch (Exception e) { continue; }
             if (v >= DATA_LO && v < DATA_HI) bases.computeIfAbsent(v, k->new TreeSet<>()).add(a);

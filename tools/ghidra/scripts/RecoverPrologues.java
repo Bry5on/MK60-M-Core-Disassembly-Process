@@ -57,8 +57,13 @@ public class RecoverPrologues extends GhidraScript {
             int h, h2;
             try { h = mem.getShort(toAddr(p)) & 0xFFFF; h2 = mem.getShort(toAddr(p + 2)) & 0xFFFF; } catch (Exception e) { continue; }
             if ((h & 0xFE0F) != 0x2400 || (h2 & 0xFFF0) != 0x0070) continue;
-            if (!recoverable(p) || !recoverable(p + 2)) continue;
-            if (cleanDecode(toAddr(p), 6)) seeds.add(p);
+            // p+2 may already be an instruction when p is a function entry whose first
+            // instruction was lost under a scalar (the body starts at p+2): still a seed.
+            Function pf = getFunctionAt(toAddr(p));
+            boolean entryHole = pf != null && getInstructionAt(toAddr(p + 2)) != null && pf.getBody().contains(toAddr(p + 2));
+            if (!recoverable(p) && !(entryHole && ls.getDataContaining(toAddr(p)) != null && ls.getDataContaining(toAddr(p)).getLength() <= 2)) continue;
+            if (!entryHole && !recoverable(p + 2)) continue;
+            if (entryHole || cleanDecode(toAddr(p), 6)) seeds.add(p);
         }
 
         int made = 0, disasm = 0, continued = 0, clearedScalars = 0, entryCleared = 0, absorbed = 0, failed = 0;

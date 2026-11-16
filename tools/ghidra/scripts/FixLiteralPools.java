@@ -146,6 +146,11 @@ public class FixLiteralPools extends GhidraScript {
                 if (pc) continue;                                          // pcrel slots were harvested above
                 if (rt.isWrite() || !(rt.isRead() || rt.isData())) continue;
                 if (!mem.contains(to)) continue;   // unmapped constants aren't flash pools
+                // An absolute read is a 32-bit pool word only when it is one: 4-aligned and not a
+                // byte/halfword access. A `ld.h` of a small in-flash table (RAM-pointer table at
+                // 0x650..0x65F on the pre-E5 image, read at +0xE) is table data; clearing "its 4
+                // bytes" from the halfword wiped the entry of the function right after the table.
+                if ((to.getOffset() & 3) != 0 || mn.equals("ld.b") || mn.equals("ld.h")) { outOfRange++; continue; }
                 if (to.getOffset() < LO || to.getOffset() >= HI) { outOfRange++; continue; }   // data-section table, not a pool
                 MemoryBlock blk = mem.getBlock(to);
                 if (blk == null || !blk.isInitialized()) { ramRefs++; continue; }  // RAM variable, not a pool
@@ -183,6 +188,11 @@ public class FixLiteralPools extends GhidraScript {
                 boolean pcSlot = pcrel.contains(off);
                 Instruction prevI = getInstructionBefore(p);
                 if (!pcSlot && prevI != null && p.equals(prevI.getFallThrough())) { skipped++; continue; }
+                // Never clear through a function entry: a slot whose 4 bytes overlap the entry of a
+                // function that starts with the frame prologue is table data next to real code.
+                boolean entryInside = false;
+                for (long q = off; q < off + 4; q += 2) { Function qf = fmgr.getFunctionAt(toAddr(q)); if (qf != null && (q != off || isPrologue(toAddr(q)))) entryInside = true; }
+                if (entryInside) { skipped++; continue; }
                 if (pcSlot && getInstructionContaining(p) != null) {
                     Function cf = getFunctionContaining(p);
                     if (cf != null) holed.put(cf.getEntryPoint(), cf.getName());   // body ran into its pool (e.g. after `rfi`)
@@ -228,7 +238,7 @@ public class FixLiteralPools extends GhidraScript {
         // `bsr .` (0xFFFF) that no function owns and nothing but itself refers to — is cleared.
         int paddingCleared = 0;
         ArrayList<Address> pad = new ArrayList<>();
-        InstructionIterator pit = listing.getInstructions(new ghidra.program.model.address.AddressSet(toAddr(Math.max(LO, 0x42000L)), toAddr(Math.min(HI, mem.getMaxAddress().getOffset() + 1) - 1)), true);
+        InstructionIterator pit = listing.getInstructions(new ghidra.program.model.address.AddressSet(toAddr(LO), toAddr(Math.min(HI, mem.getMaxAddress().getOffset() + 1) - 1)), true);
         while (pit.hasNext()) {
             Instruction ins = pit.next();
             int w; try { w = mem.getShort(ins.getAddress()) & 0xFFFF; } catch (Exception e) { continue; }
@@ -293,6 +303,16 @@ public class FixLiteralPools extends GhidraScript {
     // own body by data or by trusted code (R null = by any instruction).
     private boolean candidateReal(Function f, HashSet<Long> R) {
         if (!f.getName().startsWith("FUN_") || isPrologue(f.getEntryPoint())) return true;
+        // An entry that a PC-relative operand of another function READS is a pool word by
+        // construction, whatever else points at it (a pool constant elsewhere that happens to
+        // equal its address gets typed as a pointer and would otherwise vouch for it).
+        for (Reference r : getReferencesTo(f.getEntryPoint())) {
+            if (!r.getReferenceType().isRead() || f.getBody().contains(r.getFromAddress())) continue;
+            Instruction ri = getInstructionAt(r.getFromAddress());
+            if (ri == null) continue;
+            String rm = ri.getMnemonicString();
+            if (rm.equals("lrw") || rm.equals("jsri") || rm.equals("jmpi")) return false;
+        }
         for (Reference r : getReferencesTo(f.getEntryPoint())) {
             RefType rt = r.getReferenceType();
             if (rt.isRead() || rt.isWrite()) continue;
