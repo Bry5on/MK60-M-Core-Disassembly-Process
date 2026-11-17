@@ -75,7 +75,7 @@ tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> 
   size first** — an MK60E5 application is ~0.75 MB from `0x40000` (the four E9x/E82 images are
   `0x40000..0xF6A23`), so a file of a few KB is not flash at all (a 4 KB RAM/stack snapshot with
   0xA5A5 fill and `0x0040xxxx` pointers was handed in first; `find_boundary.py` gave 0 prologues).
-- **Pre-E5 MK60 (E46-era, `projects/E46_nonM_mk60`, 2026-11-16):** a 256 KB full-chip dump,
+- **Pre-E5 MK60 (E46-era, `projects/820.3_E46_non_m_mk60`, 2026-11-16):** a 256 KB full-chip dump,
   `BASE=0`. Vector table at `0x0` (reset `0x14DE0`), code from `0x32C` to the last prologue at
   `0x3CAE8`, calibration tail `0x3CF46..0x40000` (`APT?27F1.DFT` names), no `AZ1…` identification
   block or part number, no loader marker. Same RAM window `0x400000..0x4017FF`, different
@@ -93,7 +93,7 @@ tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> 
   the SoC's 24-bit space (or the `0xFFF00000` window) that ≥ 16 aligned pointer words name, merged
   into runs and mapped volatile as `MMIO_auto_<addr>` (values outside that space are instruction
   pairs, not pointers — an earlier, looser rule mapped 786 phantom pages). The pre-E5 MK60 dump
-  (`projects/E46_nonM_mk60`) gets ten of them: `0xCF0000`, `0xCF2000`, `0xCF6000–0xCF7FFF`,
+  (`projects/820.3_E46_non_m_mk60`) gets ten of them: `0xCF0000`, `0xCF2000`, `0xCF6000–0xCF7FFF`,
   `0xCFF000`, `0xEF8000`, `0xEFF000`, `0xFF8000`, `0xFFF000`, `0xFFFF8000`, `0xFFFFF000`; the E5
   images only re-find pages the fixed list covers.
 

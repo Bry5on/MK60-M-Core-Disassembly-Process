@@ -2,7 +2,7 @@
 
 2026-11-16 · Claude Doc: https://claude.ai/artifact/GDFEZgPfd85xvDaucA7vJn
 
-`images/non_m_mk60_full_dump.bin` is a genuine Continental Teves MK60 firmware, an earlier generation of the same code base as the E9x MK60E5 images on a smaller chip, not a different family. The lineage shows in the factory K-line protocol, the valve and pump drivers and the wheel and yaw control vocabulary, all of which match the M3 image function by function; the distance shows in the size, the peripheral map, the flat single program with no loader, and the absence of CCP. Project: `projects/E46_nonM_mk60` (program `non_m_mk60_full_dump.cpu.hex`), recovered with the pipeline at commit 112614f.
+`images/non_m_mk60_full_dump.bin` is a genuine Continental Teves MK60 firmware, an earlier generation of the same code base as the E9x MK60E5 images on a smaller chip, not a different family. The lineage shows in the factory K-line protocol, the valve and pump drivers and the wheel and yaw control vocabulary, all of which match the M3 image function by function; the distance shows in the size, the peripheral map, the flat single program with no loader, and the absence of CCP. Project: `projects/820.3_E46_non_m_mk60` (program `non_m_mk60_full_dump.cpu.hex`), recovered with the pipeline at commit 112614f.
 
 ## What the image is
 
@@ -92,6 +92,63 @@ The request bit is raised in the power-state routine 0x18A64 on the falling edge
 - Idle timeout 180 instead of 125, decremented every eighth tick: about 14.4 s against 10 s (0x1BA90 reloads, 0x1B9EA counts).
 - The serial pacing values are shifted left 2 instead of 4, so the gap timer runs on a different clock, consistent with the different peripheral map.
 - Slots 7 and 8 of the command table, empty in the E5, hold a request-arbitration routine (0x1DE38, which the cycle also calls every tick with (0,1,0), the counterpart of the E5's `module_method_dispatch(0,2,0)`) and a three-byte status getter (0x1E0B2). Class 0xA6 carries sub-commands `M O K L Q` beside `Z`; class 0xA4 lacks the E5's `S` and `H`.
+
+### Command classes on this unit
+
+The framed-mode handler is 0x1AED6 (state 6; the main cycle 0x1ACA4 carries an inline copy). The class byte at 0x4005FA selects a family, the sub-command at 0x4005FB an action; the parser 0x1B8B4 turns the eight hex characters from 0x4005FC into an address and the eight from 0x400604 into a length or value, and the pair parser 0x1B980 turns hex pairs into bytes. Unknown classes or sub-commands set bit 1 of the session flags 0x4005CE, reported as a negative answer. Levels are the low three bits of 0x4006F9. "Same" means the E5 row in `mfg_test_cycle.md` applies unchanged.
+
+| Class | Sub | Level | What it does | Against the E5 |
+| --- | --- | --- | --- | --- |
+| 0xA0 | `0` | 1 | re-arm the identification banner; `mfg_banner_send` (0x1BAE0) transmits the block as an `i` reply on the next tick | same |
+| 0xA0 | `1` | 1 | session info: the 4-byte session block 0x400700 as hex, the request buffer address 0x4005F9, the banner sender's address; 26-byte `i` reply | same |
+| 0xA0 | `3` | 1 | the four protocol-version bytes from ROM 0x3DB64: `0F 00 00 00` | E5 sends `23 02 00 00` |
+| 0xA0 | `4` | 1 | mode query and set: parameter `1` sets bit 7 of the mode byte 0x4006F9; replies the mode digit, the pointer at 0x400704 and six bytes of session flags; 15-byte `i` reply | same |
+| 0xA0 | `F` | - | not present | E5 only |
+| 0xA1 | pairs | 2 | actuator drive by (channel, value) pairs from 0x4005FB: channel `' '` (0x20) sets all twelve valve pulse channels, `0`..`;` one channel, through 0x1A1A4 (mask table 0x3DB2E, pattern words at 0x4006C4) with the value decoded by 0x1B632 (0..14, negative above 0x5F); channel `!` sets the pump level nibble through 0x198CC (control word 0x400720); anything else is a bad command; no tagged reply | E5 has no 0xA1; its 0xA5 `P` covers this ground with more fields |
+| 0xA2 | any | 1 | echo: the request bytes from 0x4005FB back as an `e` reply | same |
+| 0xA3 | level 1..4 | - | raise the access level: 1 freely; 2 freely (sets bit 5 of 0x4005CE); 3 after the mode-request helper 0x18EB0 with 3 and the pair `16`, then interrupts masked and the control reset 0x1BB20; 4 with the pair `33` and 0x18EB0 with 0x33, same reset; a wrong pair at level 4 sets the checkpoint-fail bit (0x1BAA2); `f` reply with the level digit | E5 gates level 2 behind `op_mode_request(8)`; the E5 `1`+`5` jump to state 6 is absent |
+| 0xA4 | `T` | 1 | up to 19 bytes read from the given address, sent as hex pairs | E5 redirects three directory addresses; no redirect here |
+| 0xA4 | `W` | 1 | the four raw wheel speeds 0x4005C2, 0x4005C4, 0x4005C8, 0x4005C6 as four hex characters each | same |
+| 0xA4 | `G` | 1 | up to 38 bytes of the fault latch array at 0x400DE4 plus the given offset | E5 allows 59 |
+| 0xA4 | `U` | 1 | up to 38 raw bytes from any address | E5 allows 59 |
+| 0xA4 | `V` | 1 | raw ASIC exchange: up to 8 hex pairs from the request are sent over SPI chip-select 5 (0x1B946 via 0x3C5BC) and the answer copied back; at level 1 the low two bits of each answer byte are masked | E5 `H` (QSPI exchange) |
+| 0xA4 | `I`, `J`, `H` | 1 | accepted, echoed | E5 echoes `I`, `J` |
+| 0xA4 | `X` | 1 | EEPROM read of up to 4 bytes through 0x15FC2 mode 10, a synchronous read via 0x16326 (block id below 0x200); reply byte 1 is a done flag | same mechanism, synchronous |
+| 0xA4 | `S` | - | not present | E5 only |
+| 0xA5 | `R` | 2 | write 1, 2 or 4 bytes to any address | same |
+| 0xA5 | `U` | 2 | write up to 24 bytes from 0x400605 to any address | same |
+| 0xA5 | `T` | 2 | write hex pairs from the request to the given address | same |
+| 0xA5 | `X` | exactly 2 | EEPROM write of one byte through 0x15FC2 mode 2, queued as job 0xF0 via 0x15EDE; the block id is built from two ASCII hex digits; on success waits for the job through 0x1B9DE (state 10) | same |
+| 0xA5 | `S`, `P` | - | not present | E5 only; `P` lives in 0xA1 here |
+| 0xA6 | `Z` | 3 | hand off to state 7 with the stored command byte; a request length of 2 selects 0x7B | same |
+| 0xA6 | `M` | 3, mode bit 7 clear | set the active request descriptor's header byte (bit 7 plus the low six bits of the parameter) through 0x1BBB2 | E46 only |
+| 0xA6 | `O` | 3, mode bit 7 clear | run the active descriptor through the receive service 0x1BD9C with 0x80; caps the reply length at 0x27 | E46 only |
+| 0xA6 | `K` | 3, mode bit 7 clear | install a long-frame descriptor through the frame check 0x1BD02, after validating a mode digit `0`/`1`/`2` against byte 4 of the session block XOR 0x23 | E46 only |
+| 0xA6 | `L` | 3, mode bit 7 clear | copy the escaped frame into the descriptor buffer (0x1BCA0) when its header is `@` | E46 only |
+| 0xA6 | `Q` | 3, mode bit 7 clear | load eight parameter bytes into the request area, then as `L` | E46 only |
+| 0xA6 | `T` | - | not present | E5 only (data-item directory) |
+
+**Glossary of the objects above**
+
+| Object | Where | What it is |
+| --- | --- | --- |
+| framed-mode handler | 0x1AED6 | state 6 body: frame check, class dispatch, reply, selection-refusal flag update |
+| reply send | 0x1B908 | send a tagged reply of the given length (E5 `mfg_reply_send`) |
+| hex value parser | 0x1B8B4 | eight ASCII hex characters to a 32-bit value |
+| hex pair parser | 0x1B980 | ASCII hex pairs from 0x4005FC to bytes, with the `A`..`F` adjustment |
+| ASIC SPI exchange | 0x1B946, via 0x3C5BC | transfer of up to 8 bytes on chip-select 5, answer copied back |
+| valve pulse set | 0x1A1A4 | channel mask from table 0x3DB2E or'ed into the pattern words at 0x4006C4 for a signed count of slots |
+| pulse value decode | 0x1B632 | low nibble clamped to 14, negated when the byte is above 0x5F |
+| pump level set | 0x198CC | pump motor level 0..15 into the control word 0x400720, with the inhibit bits of 0x400726 |
+| NVM request | 0x15FC2 | mode 10: synchronous EEPROM read through 0x16326; other modes: job 0xF0 queued through 0x15EDE with the block id in 0x4011F4 |
+| job status lookup | 0x16164 | finds job id in the five-entry table at 0x4011C8 and returns its status byte |
+| NVM wait entry | 0x1B9DE | load the inactivity countdown, enter state 10 |
+| control reset | 0x1BB20 | clears the control state words 0x400DD0..0x400DDC and the request descriptor, writes the two mode-request values |
+| checkpoint-fail flag | 0x1BAA2 | sets bit 3 of 0x4006F8 |
+| mode request | 0x18EB0 | writes two values through 0x3C3F4 (the E5 `op_mode_request` counterpart; semantics not pinned) |
+| request descriptor | 0x1BBB2 returns it | the long-frame descriptor the receive service 0x1BD9C dispatches on with 0x81/0x82 |
+| fault latch array | 0x400DE4 | the fault records read by `G` |
+| wheel speeds | 0x4005C2..0x4005C8 | the four raw wheel-speed words read by `W` |
 
 **Variables for the bench.** State 0x400710; flags 0x4006FA (bit 0 gates the cycle, bit 4 window armed, bit 1 set in state 0); mode byte 0x4006F9 (level in the low three bits); session flags 0x4005CE; request buffer 0x4005F9; reply buffer 0x4005CF; window counter 0x4005BC and flags 0x4005BE (bit 0 restart request, bit 1 window flag, bits 2 and 3 cleared at tick 2, bit 4 RAM-test wrap).
 
