@@ -42,6 +42,8 @@ The scripts here fix all of that. The boundaries that bound the work are found *
                         →  ReadOnlyFlash → AnalyzeSignatures  (params / return / stack locals, once, SIGS=0 skips)
  (3) mcore_port.sh      (optional) carry names over from an already-named reference project
                         (by signature, then by call-site / table-slot propagation from every match)
+ (3b) mcore_fuzzy_port.sh  (optional, after 3) the fuzzy layer: DumpMasked → fuzzy_port.py (6-gram
+                        containment of the masked instruction stream) → ApplyPortedNames
  (V) mcore_verify.sh    verify + quantify the memory map (read-only, GUI may be open)
 ```
 
@@ -81,6 +83,10 @@ tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> 
   block or part number, no loader marker. Same RAM window `0x400000..0x4017FF`, different
   peripherals (see the discovered blocks above). Recovers with the same pipeline once the bounds
   come from the image (`flashLO=0`, `codeLO=0x200`): 416 prologues, 1577 functions, HEALTHY.
+  A second one, the E46 M3 ZCP dump (`projects/817.3_e46_m3_zcp_mk60`, 2026-11-17, `AWT?26F1.DFT`
+  calibration names, tail `0x3D1B6..0x40000`, no erased sector): same layout, same ten discovered
+  MMIO pages, 410 prologues, 1670 functions, HEALTHY in 3 rounds; about half of its 16-byte
+  shingles occur in the non-M image and 1.5% in the E9x M3, so it is the non-M's close sibling.
 - **Arch sanity check** (`find_boundary.py`, non-gating) runs *before* the slow import and warns if
   the image doesn't look like M·CORE (see Step 2) — so you don't burn an analysis run on, say, an
   ARM or PowerPC image fed in by mistake.
@@ -300,6 +306,46 @@ tools/ghidra/mcore_port.sh <src_proj> <src_name> <src_program> <dst_proj> <dst_n
   What it does **not** carry: function *signatures* — those come from `AnalyzeSignatures` in
   Step 2, computed on our own listing, not copied.
 
+### Step 3b — The fuzzy layer (optional; after the exact port; writes back; GUI closed)
+
+The exact port needs the *whole* masked instruction stream to hash identically. A variant that
+added a bounds check, dropped a call or re-ordered two statements breaks that for the entire
+function although nine tenths of its code is still the same, and a reference from different
+hardware (the E9x M3 against an E46 image) shares almost nothing exactly. The fuzzy layer names
+what the exact pass left generic by *n-gram containment*:
+
+```bash
+tools/ghidra/mcore_fuzzy_port.sh <dst_proj> <dst_name> <dst_program> <label>=<src_proj>:<src_name>:<src_program> [more sources…]
+```
+
+- **`DumpMasked`** (read-only, on a snapshot) writes every function's masked halfword stream —
+  the same masking as `ExportSigs` (pool-slot and branch displacements dropped), but the sequence
+  itself instead of its hash: `entry<TAB>nInstr<TAB>name<TAB>hw0 hw1 …`.
+- **`fuzzy_port.py`** builds an inverted index of the 6-grams of every *named* source function
+  (all sources together, **closest relative first** — a tie in score goes to the earlier source)
+  and, for every still-generic target function of ≥ 20 instructions, scores each candidate by
+  `|T ∩ S| / |T|`, the fraction of the target's 6-grams the source explains. A name is applied
+  only when the best candidate scores ≥ 0.60, the runner-up is ≥ 0.10 below (unique), the target
+  is also that source function's best target (mutual best — a library leaf two targets both
+  resemble names neither), the source has between 0.5× and 2× the target's n-gram count (a small
+  target whose n-grams all occur inside a large source is an idiom, not a twin), and the name is
+  not already present in the target (every name lands once — the exact pass's names are never
+  duplicated). `--n`, `--min-instr`, `--min-score`, `--margin`, `--size-lo/--size-hi` tune it
+  (`FUZZY_ARGS` in the driver). Validation: with the target's names stripped it re-finds every
+  exact twin of ≥ 20 instructions at 1.00 with the same name.
+- **`ApplyPortedNames`** applies them (same `FUN_`/`LAB_` guard); the plate comment carries the
+  method column, `fuzzy 6-gram score=0.70 src=M3:tcs_driveslip_curve@0c795e`, so a fuzzy name is
+  recognisable as one and traceable to its source function.
+- The **tail** (`fuzzy_tail.txt`): `ambiguous` (runner-up too close), `not-mutual`, `name-taken`,
+  `below-floor` (best candidate under 0.60, with its score — the hand-review list), `nomatch`.
+
+What to expect: between close siblings the exact pass takes almost everything and the fuzzy layer
+adds little (E46 M3 ZCP from the non-M E46: 39 exact, 0 fuzzy — the non-M carries only 39 names);
+across hardware it is the only thing that reaches anything beyond library leaves (non-M E46 from
+the E9x M3: 24 exact + 15 fuzzy; E46 M3 ZCP from the E9x M3: 4 exact + 1 fuzzy at 0.70, with
+`kwp_09_proprietary` 0.60, `coding_image_seal` 0.58, `mfg_rx_service` 0.52 just under the floor).
+Lowering the floor or `--n` trades precision for a handful more — review the tail instead.
+
 The image is already fully recovered after Step 2 — porting is about readability.
 
 ---
@@ -470,9 +516,11 @@ bounds, the `ImageMap` landscape, the `DataTableInventory` table count, and the 
 | `tools/bin2hex.py` | raw `.bin` → Intel HEX at `--base` (default 0), `--skip`/`--length` for tool headers; `mcore_import.sh` calls it for `.bin` inputs |
 | `tools/find_boundary.py` | prologue-scan: arch check + programmatic flashLO/codeLO/codeHI/dataHI from a `.cpu.hex` (`--code-lo` overrides) |
 | `tools/port_symbols.py` | signature 1:1 matcher + call-site/table-slot propagation; writes `ported.tsv` + `tail.txt` |
+| `tools/fuzzy_port.py` | step 3b: masked-halfword 6-gram containment scorer over one or more `DumpMasked` sources; writes `fuzzy.tsv` + `fuzzy_tail.txt` |
 | `tools/ghidra/mcore_import.sh` | step 1: arch-check + parse + import + `CreateMemBlocks` |
 | `tools/ghidra/mcore_recover.sh` | step 2: auto-bounds + recover + finish, repeated until a round starts clean; writes `<prog>.bounds` (`FLASH_LO/CODE_LO/CODE_HI/DATA_LO/DATA_HI`) |
 | `tools/ghidra/mcore_port.sh` | step 3: `ExportSigs` ×2 + match + propagate + `ApplyPortedNames` |
+| `tools/ghidra/mcore_fuzzy_port.sh` | step 3b: `DumpMasked` per project + `fuzzy_port.py` + `ApplyPortedNames` |
 | `tools/ghidra/mcore_verify.sh` | V: read-only health check + memory-map numbers in one run (snapshot; GUI may be open) |
 | `tools/ghidra/dump.sh <proj_dir> <name> <cpu_hex> ADDR:N …` | read-only disassembly dump from a snapshot (GUI may be open) |
 
@@ -504,6 +552,7 @@ The drivers run these for you; listed so you can run one on its own. Bound-confi
 | `ReadOnlyFlash.java` | 2 — flash blocks non-writable so the decompiler folds pool loads (before `AnalyzeSignatures`) | — |
 | `ExportSigs.java` | 3 — per-function porting signatures + call/jump/table edges | `<out.sigs>` |
 | `ApplyPortedNames.java` | 3 — apply `addr<TAB>name` table | `<ported.tsv>` |
+| `DumpMasked.java` | 3b — per-function masked instruction halfword stream (read-only) | `<out.masked>` |
 | `AnalyzeSignatures.java` | 2 — params / return / stack locals via Ghidra's stack + parameter-ID commands | `LO HI [timeout_s]` |
 | `ExportAnnotations.java` | 3 — dump blocks/types/entries/names/labels/comments/bookmarks/data types + image hash (read-only) | `<out.tsv>` |
 | `ApplyAnnotations.java` | 3 — replay them by address; refuses on image-hash mismatch | `<annotations.tsv>` |
