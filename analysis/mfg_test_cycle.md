@@ -2,7 +2,7 @@
 
 2026-11-13 · Claude Doc: https://claude.ai/artifact/EM4B3qctXV2gQHSrF9718A
 
-`mfg_test_cycle` at 0x76036 is a second diagnostic protocol on the same UART that carries K-line KWP: a 13-state manufacturing and end-of-line interface that reads and writes memory, EEPROM and the sensor ASIC, drives valves and the pump directly, and hands off to the flash loader. It is not reachable in normal operation: the 10 ms task runs it instead of the KWP cycle only while a mode flag is set, and its command set is gated by an access level that a tester raises step by step.
+`mfg_test_cycle` at 0x76036 is a second diagnostic protocol on the same UART that carries K-line KWP: a 13-state manufacturing and end-of-line interface that reads and writes memory, EEPROM and the sensor ASIC, drives valves and the pump directly, and hands off to the flash loader. It is not reachable in normal operation: the 10 ms task runs it instead of the KWP cycle only while a mode flag is set, and its command set is gated by an access level that a tester raises step by step. The pre-E5 E46 unit runs the same protocol with a few differences (no 70 ms rule, free level 2, re-arming by a software re-boot at every KL15 rising edge); see `nonm_mk60_image.md`, section "The factory protocol on this unit".
 
 ## Where it runs and how it is selected
 
