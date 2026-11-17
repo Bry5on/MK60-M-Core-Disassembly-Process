@@ -169,7 +169,7 @@ The fuzzy pass adds little between close siblings because the non-M carries only
 | 0x17222 | 21 | `dsc_button_input_get` 0x6FEE4 | 50% | the DSC button input reader |
 | 0x38860 | 52 | `tcs_torque_intervention_flag` 0xCB708 | 49% | the traction-control torque-intervention flag |
 
-The first three are consistent with their call-site roles found above (0x3201C is the handler the service table names for SID 0x09; 0x1BFB4 is the receive service the command dispatch calls), which is the kind of evidence that would justify applying them by hand.
+The first three were applied by hand on 2026-11-17: `kwp_09_proprietary` 0x3201C is confirmed as the handler the service table at 0x3F358 names for SID 0x09 (record 14, level 4), `mfg_rx_service` 0x1BFB4 by its call sites (the main cycle 0x1AEBC each tick, the class handler 0x1B622, the state handler 0x1B818), and `coding_image_seal` 0x3B7AA on the user's decision, its call sites 0x3BBB0 and 0x3B5E0 not yet read. The project now carries 47 names. Porting the ZCP back to the non-M by exact signature then carried those three and the four M3 call-site names into the non-M project, which now has 46; `tcs_driveslip_curve` did not cross because its non-M twin differs.
 
 ## Open questions
 
@@ -179,7 +179,7 @@ The first three are consistent with their call-site roles found above (0x3201C i
 - [ ] What the restructured control subtrees do differently (the 0x2C1A2 subtree, the 0xD2A4 observer branch, the lateral estimator 0x27220, the new 0x21FE0): the ZCP and non-M partners are placed in the same order and share RAM, so a side-by-side decompilation of each pair is the direct route.
 - [x] Whether the factory protocol, its timing and its 8N1 configuration hold here: they do, instruction for instruction, at the addresses in the table above.
 - [ ] The polarity of the ASIC status bit (bit 7 of 0x40062D) and the edge the restart request fires on: inherited from the non-M reading, not re-derived.
-- [ ] The three near-miss names (`kwp_09_proprietary`, `mfg_rx_service`, `coding_image_seal`): confirm by call-site context and apply by hand.
+- [x] The three near-miss names (`kwp_09_proprietary`, `mfg_rx_service`, `coding_image_seal`): applied by hand on 2026-11-17, see the names section; the call sites of `coding_image_seal` remain unread.
 
 ## Method and provenance
 

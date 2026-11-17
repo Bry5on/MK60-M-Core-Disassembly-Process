@@ -160,7 +160,7 @@ None of the M3's CCP routines (`ccp_command_dispatch`, `ccp_dto_0x798_build`, `c
 
 ## Names carried over
 
-39 names are in the project: 24 by exact signature through `mcore_port.sh` and 15 by the fuzzy pass, each of the latter with a plate comment of the form `fuzzy 6-gram 84% of M3 wheel_post_frame @08f028 (proposed)`. The fuzzy pass is a Ghidra script that dumps the masked instruction stream of every function plus a Python scorer that emits the `addr<TAB>name<TAB>method` table `ApplyPortedNames.java` reads; it is not yet in the repository's tooling.
+39 names are in the project: 24 by exact signature through `mcore_port.sh` and 15 by the fuzzy pass, each of the latter with a plate comment of the form `fuzzy 6-gram 84% of M3 wheel_post_frame @08f028 (proposed)`. The fuzzy pass (`DumpMasked.java`, `tools/fuzzy_port.py`, driver `mcore_fuzzy_port.sh`) has been in the repository since commit cf0f68b. On 2026-11-17 seven more names arrived by exact signature from the ZCP project (`mfg_reply_send` 0x1B908, `mfg_rx_descriptor` 0x1BBB2, `mfg_rx_service` 0x1BD9C, `wheel_speed_filter` 0x23E10, `ax_from_front_wheels_0C953C` 0x24964, `kwp_09_proprietary` 0x311A8, `coding_image_seal` 0x3B536), making 46.
 
 ## Open questions
 
