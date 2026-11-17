@@ -84,9 +84,17 @@ tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> 
   peripherals (see the discovered blocks above). Recovers with the same pipeline once the bounds
   come from the image (`flashLO=0`, `codeLO=0x200`): 416 prologues, 1577 functions, HEALTHY.
   A second one, the E46 M3 ZCP dump (`projects/817.3_e46_m3_zcp_mk60`, 2026-11-17, `AWT?26F1.DFT`
-  calibration names, tail `0x3D1B6..0x40000`, no erased sector): same layout, same ten discovered
-  MMIO pages, 410 prologues, 1670 functions, HEALTHY in 3 rounds; about half of its 16-byte
-  shingles occur in the non-M image and 1.5% in the E9x M3, so it is the non-M's close sibling.
+  calibration names): **the chip is 0x41000 bytes (266,240), not 256 KB** — a first read stopped
+  at `0x40000` and cut off a trailing calibration block `0x40000..0x40320` (same shape as the
+  non-M's block at `0x3F860`, referenced from thirteen pool words in `0x356E4..0x3B714`), with
+  erased `0xFF` from `0x40320` to the end. Dump the whole chip. The pipeline needed no change for
+  the odd size: `bin2hex.py` keeps the erased run, `find_boundary.py` takes `dataHI` from the end
+  of the image segment (`0x41000`), and the sidecar records it. Same layout as the non-M, same ten
+  discovered MMIO pages, 410 prologues, 1670 functions, code to `0x3CDD0`, data from `0x3D1B6`,
+  HEALTHY in 3 rounds; about half of its 16-byte shingles occur in the non-M image and 1.5% in
+  the E9x M3, so it is the non-M's close sibling. One artefact of the erased tail: `ClassifyData`
+  types a couple of all-`FF` words there (`0x4032C`, `0x4036C`) as pointers, because
+  `0xFFFFFFFF` falls inside the auto-discovered `MMIO_auto_FFFFF000` block. Harmless.
 - **Arch sanity check** (`find_boundary.py`, non-gating) runs *before* the slow import and warns if
   the image doesn't look like M·CORE (see Step 2) — so you don't burn an analysis run on, say, an
   ARM or PowerPC image fed in by mistake.
