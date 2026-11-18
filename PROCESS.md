@@ -95,6 +95,13 @@ tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> 
   the E9x M3, so it is the non-M's close sibling. One artefact of the erased tail: `ClassifyData`
   types a couple of all-`FF` words there (`0x4032C`, `0x4036C`) as pointers, because
   `0xFFFFFFFF` falls inside the auto-discovered `MMIO_auto_FFFFF000` block. Harmless.
+  A third one, the E46 M3 non-ZCP dump (`projects/e46_m3_non_zcp_mk60`, 2026-11-17, `AUT?24F1.DFT`
+  names): complete at 256 KB (data to `0x3FCEC`, the `0x320`-byte block the ZCP keeps past `0x40000`
+  sits inside), 409 prologues, 1585 functions, code to `0x3C910`, data from `0x3CCF6`, HEALTHY in 3
+  rounds, no pipeline change; 96% of its functions are the ZCP's. **Completeness check for any new
+  dump:** resolve every `lrw` pool slot in the raw file and list the values in `[image end, 0x400000)`;
+  bit-mask constants (`0x60001`, `0xA0008` …) are normal, a cluster of values just past the end is a
+  truncated read (that is how the ZCP's missing sector was caught).
 - **Arch sanity check** (`find_boundary.py`, non-gating) runs *before* the slow import and warns if
   the image doesn't look like M·CORE (see Step 2) — so you don't burn an analysis run on, say, an
   ARM or PowerPC image fed in by mistake.
