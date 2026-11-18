@@ -6,7 +6,7 @@ Function-by-function differences between the E46 M3 non-ZCP image (`projects/e46
 
 ## Summary
 
-| Subsystem | Functions changed (N) | Nature of the change | This image's version |
+| Subsystem | Functions changed (non-ZCP) | Nature of the change | This image's version |
 |---|---|---|---|
 | M track mode button logic (mode machine, table, sync) | 9 + 2 unique (0x217C0, 0x21CC0) | two channels, 28 rows, no sync routine, no 0xC2000; plus one factory-window guard the ZCP added to the state machine | the non-M's, see the image doc |
 | 0x2BC34 control subtree (RAM 0x400B00..0x400DFF) | 13 unique | the same procedures with one RAM word inserted at 0x400B32, five constants changed (offset threshold 120→150, two gains ×5→×11, one factor 75%→50%, defaults 25→110), a parameter block moved from immediates into ROM at 0x3EBC4, one hysteresis routine simplified, one init call dropped; 0x2EA98 is one body where the ZCP project shows four recovery fragments | a third edit |
@@ -36,7 +36,7 @@ Covered in `e46_m3_non_zcp_mk60_image.md` ("What the ZCP build adds") and `zcp_m
 
 The subtree keeps its structure; every function here calls the same callees in the same order. The RAM map of the subtree differs by one inserted 16-bit word: from 0x400B32 up, this image's words sit 4 bytes higher than the ZCP's (N 0x400B36/38/3A/3C/3E are Z 0x400B32/34/36/38/3A), which is why so many functions here are not instruction-identical. The changes with an effect:
 
-| N | Z | What differs |
+| Non-ZCP address | ZCP address | What differs |
 |---|---|---|
 | 0x2BC7A (350) | 0x2C1A2 (346) | none: the body is identical statement for statement; the final call goes to 0x2EA98 here and to the first fragment 0x2EF90 there |
 | 0x2C108 (67) | 0x2C624 (65) | none (a signed compare rewritten) |
@@ -56,7 +56,7 @@ The constants this subtree reads from ROM also moved: this image keeps a 16-word
 
 ### 1.3 The fault manager (10 ms body → 0x328EE → 0x32FC8)
 
-| N | Z | What differs |
+| Non-ZCP address | ZCP address | What differs |
 |---|---|---|
 | 0x33140 (571) | 0x335FC | recompiled, identical statements |
 | 0x33640 (573) | 0x33AF8 | recompiled, identical statements |
@@ -73,7 +73,7 @@ The constants this subtree reads from ROM also moved: this image keeps a 16-word
 
 All thirteen large functions here are the non-M's; the ZCP's are recompiles with four small source edits:
 
-| N | Z | What differs |
+| Non-ZCP address | ZCP address | What differs |
 |---|---|---|
 | 0x13EBA (789) | 0x13F0E (814) | recompiled: the same flag assembly in 0x400534..0x400537, the same counters, the same three curve lookups (tables 0x3D8C8, 0x3D8E4, 0x3D900 here; 0x3DDD8, 0x3DDF4, 0x3DE24 there, identical contents), the same calls. The ZCP reads its constants through individual pool words (hence the many 2-byte "tables" at 0x3DCFC..0x3DE42 in the ZCP inventory) where this image uses block offsets |
 | 0x14CC0 (28) | 0x14DD0 (31) | the call of 0x14B7C passes 0x578 (1400) here and 0x400 (1024) in the ZCP as its fourth argument |
@@ -88,7 +88,7 @@ All thirteen large functions here are the non-M's; the ZCP's are recompiles with
 
 ### 1.7 KWP handlers and the dispatcher
 
-| N | Z | What differs |
+| Non-ZCP address | ZCP address | What differs |
 |---|---|---|
 | SID 0x27 handler 0x31A82 (105, non-M) | 0x31F4A (102) | no difference in the decompiled body (seed compare through 0x30F7C / 0x31A34, level test against 0x4011F5) |
 | SID 0x31 handler 0x3233C (125, non-M) | 0x327FC (125) | no difference (routine ids 0x23, 0x25, 0x26 through 0x3B158(3), 0x2D428 / 0x2D6C4) |
@@ -139,7 +139,7 @@ Method: every pool word of every function that lands in the data section was col
 
 **Same tables, different values.** Most of the 65 are pointer words (code addresses that moved: the command table 0x3DC08, the KWP table 0x3ED24, the CAN message and signal tables, the UART driver pointers) or RAM addresses that moved with the layout. The calibration values that actually differ:
 
-| Table (N / Z) | Reader | Difference |
+| Table (non-ZCP / ZCP) | Reader | Difference |
 |---|---|---|
 | 28-byte curve records 0x3D36E/0x3D82E, 0x3D38A/0x3D84A, 0x3D3A6/0x3D866, 0x3D3C2/0x3D882, 0x3D416/0x3D8D6, 0x3D486/0x3D946, 0x3D4A2/0x3D962 | 0xE844, 0x13106, 0xD69A, 0xD4CC (the observer branch) | one word at offset 0x14 (the eleventh of fourteen): 0x1F58→0x3009, 0x50E2→0x62DA, 0x2CFF→0x3706, 0x115→0x145, 0x70E→0x49A, 0x13A→0x13C, 0x141→0x142 |
 | fourteen 28-byte records 0x3D54A..0x3D6EE / 0x3DA0A..0x3DBAE | 0xD98C, 0xE070 | the same word in each: 0xC620→0xC764, 0x18AC→0x13D4, 0x397F→0x3AB8, 0x227C→0x229C, 0xC06→0xB51, 0x297F→0x33A6, 0x426→0x52A, 0x27DE→0x2896, 0x39DE→0x3AE2, 0xABD→0xAB3, 0x45BA→0x45BE, 0x2DFB→0x2E26, 0x3C7→0x46C, 0xF1C7→0xF133 |
