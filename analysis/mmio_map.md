@@ -30,6 +30,25 @@ actuator drive) and a small serial EEPROM (95040, VIN/coding) are separate packa
 Registers sit in the UPPER HALF (+0x8000) of each 64 KB page. Everything above SRAM except these banks reads
 no-reply to the mfg 0xA4 probe - see "Why MMIO can't be block-scanned".
 
+## Peripheral banks (ascending)
+
+Module-level view in ascending base address. "Byte-readable" is from the live `0xA4 'U'` step-1 probe.
+
+| Base | Bank / module | What it is | Byte-readable |
+|---|---|---|---|
+| 0x007F8000 | Timer B (input-capture) | second capture timer, a full mirror of 0xFF8000; driver-init `{0x7F8000 -> 0x3CDB0}` in FUN_00016bce | 0x7F8010..803D |
+| 0x00E60000 | System / clock config | cluster 0xE60086/9A/0102/0120/015A written once at CPU init; reset/clock/system-integration, untouched at runtime (medium confidence) | none (no-reply) |
+| 0x00EF8000 | Watchdog / clock-enable + CRC (DANGER) | 0xEF8200/8500 peripheral-enable & watchdog gating (st.w each tick, FUN_00016e0c); 0xEF8400 CRC engine (FUN_00015464). HARD-HANGS on a live read - survives a KL15 cycle, recovers only on removing KL30. Do not probe | - |
+| 0x00EFFF00 | Digital I/O + peripheral control | input port 0xEFFF28/2A/2B (buttons, FUN_00016fca); QSPI chip-select 0xEFFF21; plus peripheral control/status configured at reset with a config-then-poll handshake (0xEFFF18 ctrl, 0xEFFF1A polled status, 0xEFFF40; FUN_00014e70) | 0xEFFF20..33, 0xEFFF38..3F (word-only hole 0xEFFF34..37) |
+| 0x00FF8000 | Timer A - wheel-speed capture | capture 0xFF8014/18 (word) -> wheel RAM 0x400664; status 0xFF8032; counter 0xFF8024; cal 0xFF8010; ISR FUN_00017cb6 | 0xFF8010..803D |
+| 0x00FFFA00 | QSPI / ASIC link | on-chip SPI master to the external system ASIC (analog front end): control 0xFFFA1C (bit15 start), status 0xFFFA1F (bit7 done), config 0xFFFA1A; data 0xFFFB00 (digitized ASIC result) / 0xFFFB20 (tx, channel); driver FUN_0003c360 | 0xFFFA08..0F, 0xFFFA14..1F, 0xFFFB00..3F |
+| 0x00FFFC80 | CAN controller | TX mailbox at 0xFFFC80; RX mailbox array 0xFFFD00..0xFFFDFF = 16 x 16-byte buffers (control/ID/8 data), FlexCAN-style | 0xFFFC86..A7; 0xFFFD00..DFF (each mailbox offset 0..D) |
+
+One-line architecture: a custom Freescale SC550080 M-CORE with twin input-capture timers (wheel speed), a QSPI
+link to the analog ASIC (no on-chip ADC), a GPIO/peripheral-control block, a CAN controller, and a
+watchdog/clock/CRC supervisory block - all in the upper half of their 64 KB pages near the top of the 16 MB
+space.
+
 ## Named registers
 
 ### Analog acquisition - there is NO on-chip ADC
