@@ -6,11 +6,11 @@ Read-only findings from the raw dumps `817.3_e46_m3_zcp_mk60_full_dump.bin` (ZCP
 
 | Image | Block address | Sets present |
 |---|---|---|
-| M3 non-ZCP | 0x3E904 | 1–6 |
-| ZCP | 0x3EF58 | 1–6 (byte-identical to the non-ZCP) |
+| M3 non-ZCP | 0x3E908 | 1–6 |
+| ZCP | 0x3EF5C | 1–6 (byte-identical to the non-ZCP) |
 | Non-M | (calibration tail) | 1–3 only, identical to sets 1–3 above |
 
-The block opens with header words 10000, 20000, then the clamp list (last x of each set: 14400, 12274, 12891, 12205, 14400, 12685), then all x sets followed by all y sets, each 4 × s16. x is steering-wheel angle in sensor counts; y is the overall (secant) ratio × 1024, linearly interpolated on |angle| and clamped to the last x. The byte before the block differs (0x83 non-ZCP, 0xC9 ZCP) and belongs to another table.
+Immediately before the steering-ratio block is a separate 2-point curve used by another function (x = {10000, 20000}, y = {286, 857}); those words are not a header of this block. The steering-ratio block starts at the clamp list (last x of each set: 14400, 12274, 12891, 12205, 14400, 12685), then all x sets followed by all y sets, each 4 × s16. x is steering-wheel angle in sensor counts; y is the overall (secant) ratio × 1024, linearly interpolated on |angle| and clamped to the last x. The byte before the preceding curve differs (0x83 non-ZCP, 0xC9 ZCP) and belongs to another table.
 
 | Set | x (counts) | y (ratio × 1024) |
 |---|---|---|
