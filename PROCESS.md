@@ -102,6 +102,10 @@ tools/ghidra/mcore_import.sh <image.0pa | image.cpu.hex | image.bin> <proj_dir> 
   dump:** resolve every `lrw` pool slot in the raw file and list the values in `[image end, 0x400000)`;
   bit-mask constants (`0x60001`, `0xA0008` …) are normal, a cluster of values just past the end is a
   truncated read (that is how the ZCP's missing sector was caught).
+  A fourth one, the E46 811.3 non-M (`projects/811.3_e46_non_m_mk60`, 2026-11-18): 237,568 bytes
+  (`0x3A000`, the read stops after the last written sector), complete by the same check, 370 prologues,
+  1164 functions, code to `0x36ED0`, data from `0x372B6`, HEALTHY in 3 rounds, no pipeline change; an
+  earlier build, only 53% of its functions identical to any of the other three.
 - **Arch sanity check** (`find_boundary.py`, non-gating) runs *before* the slow import and warns if
   the image doesn't look like M·CORE (see Step 2) — so you don't burn an analysis run on, say, an
   ARM or PowerPC image fed in by mistake.
