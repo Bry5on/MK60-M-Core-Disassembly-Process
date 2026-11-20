@@ -1,6 +1,6 @@
 # E46 M3 MK60 — M·CORE tooling and 818.3 coverage
 
-2026-11-20. A short status note: what Motorola M·CORE (MMC2xxx) tooling exists, and what a Ghidra recovery of the 818.3 image actually covers. Companion: `e46_m3_mk60_mtrack_mode4.md`, `e46_m3_mk60_818_3_function_names.md`.
+2026-11-20. A short status note: what Motorola M·CORE (MMC2xxx) tooling exists, and what a Ghidra recovery of the 818.3 image actually covers. Companion: `e46_m3_mk60_mtrack_mode4.md`, `e46_m3_mk60_818_3_function_names.md`, `e46_m3_mk60_can_map.md`, `e46_m3_mk60_traction_control.md`.
 
 ## What exists
 
@@ -28,8 +28,8 @@ How measured: a 2-byte linear sweep with a 16-bit M·CORE disassembler that foll
 | Inside those signature bodies, halfwords that decode as a real instruction | **104 535 / 106 745 (97.93 %)**; **2 210** `.half` (pools). **161 / 1585** functions have at least one `.half` in the `nins × 2` span. |
 | Naive linear sweep of the code window (pools counted as failures) | **117 494 / 123 784 (94.92 %)** |
 | Naive linear sweep of the whole 256 KiB file | **123 198 / 131 072 (93.99 %)** |
-| Non-generic names in the Ghidra recovery | A first ZCP signature port left **51** user-named functions (50 ports plus `reset`), plus seven generic `thunk_FUN_*` stubs (the earlier **58 / 1585** figure counted those thunks). A later naming pass brought user-named functions to **113 / 1585 (7.1 %)** and added 61 RAM / table labels; see `e46_m3_mk60_818_3_function_names.md`. |
+| Non-generic names in the Ghidra recovery | A first ZCP signature port left **51** user-named functions (50 ports plus `reset`), plus seven generic `thunk_FUN_*` stubs (the earlier **58 / 1585** figure counted those thunks). A later naming pass brought user-named functions to **113 / 1585 (7.1 %)** and added 61 RAM / table labels. A further pass over the CAN layer, traction control, and driver-mode inputs brought that to **219 / 1585 (13.8 %)** named functions and 109 RAM / table labels; see `e46_m3_mk60_818_3_function_names.md`. |
 
 “Cleanly into functions” means the HEALTHY Ghidra recovery (1585 functions; 85.77 % of the code window inside signature bodies). It is not a claim that most of the image is understood.
 
-User-named functions on this recovery are now 113 of 1585, listed with confidence tags in `e46_m3_mk60_818_3_function_names.md`. That set includes the five driver-mode predicates, `driver_mode_get` (`0x21AE8`), `yaw_os_us_bars_update` (`0xE844`), `r_ref_eval` (`0x29606`), `r_est_eval` (`0x26258`), `interp_linear_xy` (`0x181F8`), `is_mdm_flag_write` (`0x3B080`), `tcs_driveslip_curve` (`0x3518C`, a name ported from the ZCP image), and the other mode-4 consumers in `e46_m3_mk60_mtrack_mode4.md`. Heinz `zcp_m_track_mode.md` documents the ZCP / non-M twins of those consumers. Most of the 1585 recovered functions are still generic `FUN_` names.
+User-named functions on this recovery are now 219 of 1585, listed with confidence tags in `e46_m3_mk60_818_3_function_names.md`. That set includes the five driver-mode predicates, `driver_mode_get` (`0x21AE8`), `yaw_os_us_bars_update` (`0xE844`), `r_ref_eval` (`0x29606`), `r_est_eval` (`0x26258`), `interp_linear_xy` (`0x181F8`), `is_mdm_flag_write` (`0x3B080`), `tcs_driveslip_curve` (`0x3518C`, a name ported from the ZCP image), the other mode-4 consumers in `e46_m3_mk60_mtrack_mode4.md`, and the CAN-layer / TCS names in `e46_m3_mk60_can_map.md` and `e46_m3_mk60_traction_control.md`. Heinz `zcp_m_track_mode.md` documents the ZCP / non-M twins of the mode-4 consumers. Most of the 1585 recovered functions are still generic `FUN_` names.

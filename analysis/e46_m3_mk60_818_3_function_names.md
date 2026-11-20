@@ -2,13 +2,13 @@
 
 2026-11-20. Read-only analysis of the 818.3 (non-ZCP E46 M3) Continental Teves MK60 image. This is a map of names assigned on a Ghidra recovery of that image, not a procedure for writing a BIN or a car.
 
-Companion documents: `e46_m3_mk60_mtrack_mode4.md` (what live M-track mode changes), `e46_m3_dataset10_vs_zcp.md` (dataset-10 `r_ref` and the numeric mode-1 / mode-4 oversteer bars), `e46_m3_mk60_image_check_word.md` (the main-range check word), `e46_m3_mk60_tooling_status.md` (M·CORE tooling and coverage). The full name table is `e46_m3_mk60_818_3_names.csv`.
+Companion documents: `e46_m3_mk60_mtrack_mode4.md` (what live M-track mode changes), `e46_m3_mk60_can_map.md` (both CAN buses and every RX/TX), `e46_m3_mk60_traction_control.md` (TCS slip chain and the `0x153` torque request), `e46_m3_mk60_gauge_s_validation.md` (Gauge.S predictor and channel check), `e46_m3_dataset10_vs_zcp.md` (dataset-10 `r_ref` and the numeric mode-1 / mode-4 oversteer bars), `e46_m3_mk60_image_check_word.md` (the main-range check word), `e46_m3_mk60_tooling_status.md` (M·CORE tooling and coverage). The full name table is `e46_m3_mk60_818_3_names.csv`.
 
 ## Counts
 
-A first pass of unambiguous signature and call-site ports from the already-named 817.3 ZCP recovery produced **51** user-named functions on this image (50 ports plus `reset`), out of **1585** recovered functions (verify HEALTHY). A later pass, using the same recovery and the method below, brought that to **113** named functions and added **61** user labels (RAM variables, MDM / TCS / A-B calibration tables, and the `0xF028` taper site). The recovery already had imported vector names and a large set of auto `tbl_*` flash-table labels; those were left in place and are not in the 61.
+A first pass of unambiguous signature and call-site ports from the already-named 817.3 ZCP recovery produced **51** user-named functions on this image (50 ports plus `reset`), out of **1585** recovered functions (verify HEALTHY). A later pass, using the same recovery and the method below, brought that to **113** named functions and added **61** user labels (RAM variables, MDM / TCS / A-B calibration tables, and the `0xF028` taper site). A further pass over the CAN layer (both buses), the traction-control path, and the driver-mode inputs brought the catalog to **219** named functions and **109** user labels (328 rows). The recovery already had imported vector names and a large set of auto `tbl_*` flash-table labels; those were left in place and are not in the 109.
 
-The 113 does not include seven generic `thunk_FUN_*` stubs. Confidence on the new catalog is **71 [C]**, **51 [I]**, and **1 [?]**, plus [C] for the 51 names that were already present.
+The 219 does not include seven generic `thunk_FUN_*` stubs. Confidence on the full catalog is **175 [C]**, **43 [I]**, and **1 [?]** for functions, and **79 [C]** / **30 [I]** for labels.
 
 ## How the names were assigned
 
@@ -19,6 +19,7 @@ Names were applied in this order:
 1. **Exact signature port**, with Heinz’s public `tools/port_symbols.py` (relocation-invariant masked-body signatures, then call-site / table-slot propagation). Sources were the already-named 817.3 ZCP and 820.3 non-M recoveries, and a named E9x M3 image. Function names that originate on that E9x image ultimately come from [cmg5461’s documented MK60e5 analysis](https://github.com/cmg5461/mk60e5-firmware). The ZCP and non-M ports added no *new* names in this pass — the unambiguous matches were already present. The E9x image added seven short helpers only when the minimum unique-signature body was lowered to four instructions. The useful E9x overlap is real but thin; this is a different generation than the e5 image.
 2. **Fuzzy n-gram containment**, with Heinz’s public `tools/fuzzy_port.py`. The published floor (6-gram, score ≥ 0.60, mutual best) produced no ports. A looser candidate list (6-gram ≥ 0.40 and 4-gram ≥ 0.50) was vetted against the 818.3 listing before any name was kept. A vehicle-specific CAN-id candidate (`can_rx_2E4_trailer`) was rejected: this module’s vehicle-bus transmit list is `0x153` / `0x1F0` / `0x1F3`.
 3. **Vehicle-model and M-track identification** of still-unnamed functions, RAM, and calibration tables from the 818.3 listing itself: OS / US bars, the `0x400474` correction chain, the TCS slip term, the CAN `0x153` torque packer, coding / `k_ds`, `r_ref` / `r_est`, and the image check word. Existing user names were not overwritten.
+4. **CAN layer, TCS, and driver-mode inputs**, still from the 818.3 listing: the vehicle- and sensor-bus tables and every getter / setter, the controller driver and timeout posters, the TCS slip chain through the `0x153` packer, and a trace of CAN `0x615` byte 1 bit 1 showing that it does not write the mode word (mode 4 is the hardwired DSC / M button). Details are in `e46_m3_mk60_can_map.md` and `e46_m3_mk60_traction_control.md`. Existing user names were not overwritten.
 
 Every new name has a one-line basis in the CSV, and a plate or EOL comment with the same confidence tag in the recovery.
 
@@ -43,17 +44,18 @@ These are the names that describe what M-track changes when the car is mid-corne
 
 ## What is still open
 
-- **MSR** (overrun / engine-drag): no direct `_is_mdm` or flag read, and the torque packer’s second-sign path (`0x400EB7` bit 5, inputs `0x400F60` / `0x400F8E`) has not been identified as MSR. [?]
-- **CBC / ADB:** no direct read and no derived-byte path identified under those names. [?]
+- **MSR** (overrun / engine-drag): no direct `_is_mdm` or flag read, and the torque packer’s second-sign path (`0x400EB7` bit 5, inputs `0x400F60` / `0x400F8E`) has not been identified as MSR. The best candidate writer of `0x400F8E` is `msr_or_drag_term_update` (`0x3A1BE`) [I]. See `e46_m3_mk60_traction_control.md`. [?]
+- **EBV, ASC brake, CBC / ADB:** EBV was not identified; a dedicated TCS wheel-brake path was not separated from the shared hydraulic plant; no CBC / ADB path was identified under those names. [?]
 - **`hyd_plant_main` (`0xA8E4`):** the dataflow from `yaw_os_corr_filtered` is confirmed; the official function name is not. [?]
 - Official names of `actuator_cmd_from_yaw_corr` and `yaw_corr_gate_flag`, physical units of `lat_est_limit` and the `0x10BD` / `0x85F` pair, the 818.3 lamp-dispatcher addresses, and a live confirmation of CAN `0x153` byte 7 bit 1 on a car.
+- Identity of driver-mode channel 1’s hardwired pin (not CAN `0x615` / LV_TOW; that bit is write-only and does not set the mode — `e46_m3_mk60_can_map.md`). [?]
 
 An ambiguous fuzzy tie at `0x25A48` (`steer_task` vs `control_dispatcher`) was left unnamed.
 
 ## The table
 
-`e46_m3_mk60_818_3_names.csv` has one row per named function and per new label (174 rows), with columns `address`, `kind`, `old_name`, `new_name`, `confidence`, `source`, and `basis`. `old_name` is the generic `FUN_…` (or empty, for a new label) unless the name was already present. `source` is one of: already present (ZCP signature port); unique signature or fuzzy n-gram versus a named E9x M3 image; or the 818.3 listing (M-track / vehicle model, dataset 10, or the image check word).
+`e46_m3_mk60_818_3_names.csv` has one row per named function and per new label (328 rows: 219 functions, 109 labels), with columns `address`, `kind`, `old_name`, `new_name`, `confidence`, `source`, and `basis`. `old_name` is the generic `FUN_…` (or empty, for a new label) unless the name was already present. `source` is one of: already present (ZCP signature port); unique signature or fuzzy n-gram versus a named E9x M3 image; or the 818.3 listing (M-track / vehicle model, dataset 10, the image check word, the CAN layer, or TCS).
 
 ## Method and provenance
 
-Function bounds are from the Ghidra recovery of this image (1585 functions, verify HEALTHY) with the public CUB3D/ghidra-mcore module and the scripts in Heinz’s public repo. E9x-origin names that were kept after a signature or vetted fuzzy match are from cmg5461’s documented analysis, carried with Heinz’s public `port_symbols.py` and `fuzzy_port.py`. M-track, dataset-10, and check-word names were assigned from the 818.3 listing and the notes cited above. No BIN was written, and nothing was written to a car.
+Function bounds are from the Ghidra recovery of this image (1585 functions, verify HEALTHY) with the public CUB3D/ghidra-mcore module and the scripts in Heinz’s public repo. E9x-origin names that were kept after a signature or vetted fuzzy match are from cmg5461’s documented analysis, carried with Heinz’s public `port_symbols.py` and `fuzzy_port.py`. M-track, dataset-10, check-word, CAN-layer, TCS, and driver-mode names were assigned from the 818.3 listing and the notes cited above. No BIN was written, and nothing was written to a car.
