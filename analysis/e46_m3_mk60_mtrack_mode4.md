@@ -2,7 +2,7 @@
 
 2026-11-20. Read-only analysis of the 818.3 (non-ZCP E46 M3) Continental Teves MK60 image. This is a map of what live M-track mode changes in the firmware, not a procedure for writing a BIN or a car.
 
-Companion documents: `zcp_m_track_mode.md` (ZCP / non-M twins of the same consumers), `e46_m3_non_zcp_mk60_image.md` (how this image sits between those two), `e46_m3_dataset10_vs_zcp.md` (dataset-10 `r_ref` and the numeric mode-1 / mode-4 oversteer bars).
+Companion documents: `zcp_m_track_mode.md` (ZCP / non-M twins of the same consumers), `e46_m3_non_zcp_mk60_image.md` (how this image sits between those two), `e46_m3_dataset10_vs_zcp.md` (dataset-10 `r_ref` and the numeric mode-1 / mode-4 oversteer bars), `e46_m3_mk60_tooling_status.md` (M·CORE tooling and coverage of the Ghidra recovery).
 
 ## What M-track is on this image
 
@@ -28,7 +28,7 @@ At the example sweeper’s MK60-view 113.8 km/h the live first-trip mode-4 overs
 
 ## How the xref was built
 
-Every 4-aligned word in the 256 KiB 818.3 dump was scanned for pointers to the predicates and to `driver_mode_get`, `0x40100E`, and `0x401035`. Instruction refs used the M·CORE pool rule `P = ((pc+2) & ~3) + (imm8 << 2)` for `jsri` / `jmpi` / `lrw`. Direct `bsr` / `br` / `bt` / `bf` displacements were also scanned; none landed on the predicates. Flag readers are `ld.b` / `st.b (reg, 7)` after an `lrw` of `0x40100E`. Bit-3 tests of `0x401035` were register-tracked through `ld.b` and `btsti …, 3`. Call sites were assigned to the surrounding routine in the raw listing. Listings used a 16-bit M·CORE disassembler with the same opcode map as GNU `opcodes/mcore-dis.c`.
+Every 4-aligned word in the 256 KiB 818.3 dump was scanned for pointers to the predicates and to `driver_mode_get`, `0x40100E`, and `0x401035`. Instruction refs used the M·CORE pool rule `P = ((pc+2) & ~3) + (imm8 << 2)` for `jsri` / `jmpi` / `lrw`. Direct `bsr` / `br` / `bt` / `bf` displacements were also scanned; none landed on the predicates. Flag readers are `ld.b` / `st.b (reg, 7)` after an `lrw` of `0x40100E`. Bit-3 tests of `0x401035` were register-tracked through `ld.b` and `btsti …, 3`. Function bounds come from the Ghidra recovery of this image (1585 functions, verify HEALTHY), using the public CUB3D/ghidra-mcore module and the scripts in Heinz’s public repo. Listings used a 16-bit M·CORE disassembler with the same opcode map as GNU `opcodes/mcore-dis.c`.
 
 `FUN_00021f18` at `0x21F18` calls `driver_mode_get(1)` and is the channel-1 optional driver function (modes 8–11), not a mode-4 consumer.
 
@@ -146,4 +146,4 @@ The other sites were not re-derived. They are not counted as M-track effects.
 
 ## Method and provenance
 
-The 818.3 listings are from the raw image. ZCP / non-M roles were taken from `zcp_m_track_mode.md` and re-checked against this listing; several RAM addresses are shifted relative to the ZCP (`0x401015` not `0x401045`, `0x400AA5` not `0x400ACD`, `0x4011DA` not `0x40120A`, `0x400EB4` not `0x400EE4`). No BIN was written, and nothing was written to a car.
+The 818.3 listings are from the raw image and a Ghidra recovery of this image (1585 functions, verify HEALTHY) with the public CUB3D/ghidra-mcore module and the scripts in Heinz’s public repo (commit `6ea098d`). ZCP / non-M roles were taken from `zcp_m_track_mode.md` and re-checked against this listing; several RAM addresses are shifted relative to the ZCP (`0x401015` not `0x401045`, `0x400AA5` not `0x400ACD`, `0x4011DA` not `0x40120A`, `0x400EB4` not `0x400EE4`). No BIN was written, and nothing was written to a car.
