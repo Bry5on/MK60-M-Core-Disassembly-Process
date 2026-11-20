@@ -1,0 +1,175 @@
+address,kind,old_name,new_name,confidence,source,basis
+00000000,function,reset,reset,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00004E30,function,FUN_00004e30,actuator_cmd_from_yaw_corr,[I],818.3 listing (M-track / vehicle model),can halve/pack a 5-bit field into channel+0xC and 0x401052 from the 0x400474 correction
+00007290,function,FUN_00007290,yaw_corr_gate_flag,[I],818.3 listing (M-track / vehicle model),writes bit 0 of 0x401068+2 from a 0x400474 threshold test
+0000A8E4,function,FUN_0000a8e4,hyd_plant_main,[?],818.3 listing (M-track / vehicle model),large low-address plant that uses 0x400474 as a correction term; official ABS vs yaw-brake role unlabeled
+0000D2A4,function,FUN_0000d2a4,ayc_and_bars_task,[I],818.3 listing (M-track / vehicle model),calls ayc_obs_wrapper and yaw_os_us_bars_wrapper
+0000D2E4,function,FUN_0000d2e4,ayc_obs_wrapper,[C],818.3 listing + fuzzy vs named E9x M3 image,calls the two OS-bar trip filters; fuzzy 4-gram 0.52 vs M3:ayc_obs_wrapper
+0000D98C,function,FUN_0000d98c,yaw_os_bar_trip_filter,[C],818.3 listing (M-track / vehicle model),compares live yaw 0x400922 to OS bar 0x40042A; writes filtered correction 0x400474 and 0x40034B bit 2
+0000E070,function,FUN_0000e070,yaw_os_bar_trip_filter_twin,[C],818.3 listing (M-track / vehicle model),same compare as yaw_os_bar_trip_filter; writes twin 0x4004C2 / 0x40034C with no external readers
+0000E834,function,FUN_0000e834,yaw_os_us_bars_wrapper,[C],818.3 listing (M-track / vehicle model),calls yaw_os_us_bars_update then yaw_bars_secondary
+0000E844,function,FUN_0000e844,yaw_os_us_bars_update,[C],818.3 listing (M-track / vehicle model),five _is_mdm sites; writes OS/US bars 0x40042A/0x40042E/0x400434/0x400436 including MDM /128 then 0xF028 taper
+0000F4B0,function,FUN_0000f4b0,yaw_bars_secondary,[I],818.3 listing (M-track / vehicle model),reads the four bar words written by yaw_os_us_bars_update
+00012E44,function,FUN_00012e44,mdm_wheel_side_state,[C],818.3 listing (M-track / vehicle model),writes 0x40034B bit 4 from _is_mdm; local state machine only
+00013106,function,FUN_00013106,wheel_side_state_step,[I],818.3 listing (M-track / vehicle model),only called from mdm_wheel_side_state; uses 0x40034B bit 3
+000133EE,function,FUN_000133ee,wheel_side_setpoints,[I],818.3 listing (M-track / vehicle model),called from mdm_wheel_side_state; writes setpoints around 0x4004E8
+00014D70,function,vec_misaligned_access,vec_misaligned_access,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00015556,function,uart_flags_get,uart_flags_get,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00015BDC,function,FUN_00015bdc,image_check_word_compare,[C],818.3 listing (image check word),compares the 32-bit left-shift MISR residue to the stored image check word
+00015CAC,function,FUN_00015cac,image_check_range_validate,[C],818.3 listing (image check word),start-up range-table validator and CRC/MISR unit clear; not the checksum itself
+000170F2,function,FUN_000170f2,dsc_button_input_get,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.50 / 4-gram 0.56 vs M3:dsc_button_input_get; sits by the driver-mode predicates
+00018108,function,curve_interp_s16,curve_interp_s16,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001817A,function,abs_sat16,abs_sat16,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000181E4,function,clamp_s16,clamp_s16,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000181F8,function,interp_linear_xy,interp_linear_xy,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000182C0,function,iir_blend_q8,iir_blend_q8,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00019E90,function,FUN_00019e90,uart_rx_ready_clear,[C],unique signature vs named E9x M3 image,unique masked-body signature vs named E9x M3 (min 4 instr)
+0001A62A,function,FUN_0001a62a,wheel_circ_get,[C],unique signature vs named E9x M3 image,unique masked-body signature vs named E9x M3 (min 4 instr)
+0001A7FC,function,wheel_edge_count_get,wheel_edge_count_get,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001AD10,function,FUN_0001ad10,mfg_session_start,[C],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.64 / 4-gram 0.69 vs M3:mfg_session_start@075fd4; already-named mfg_* family on this image
+0001B7A4,function,FUN_0001b7a4,uart_rx_frame_len,[C],unique signature vs named E9x M3 image,unique masked-body signature vs named E9x M3 (min 4 instr)
+0001B7B0,function,uart_rx_byte_pending,uart_rx_byte_pending,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001B8D4,function,mfg_hex_format,mfg_hex_format,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001B910,function,mfg_hex_byte,mfg_hex_byte,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001B940,function,FUN_0001b940,mfg_hex_parse,[C],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.69 / 4-gram 0.73 vs M3:mfg_hex_parse@077368; already-named mfg_hex_byte/format
+0001B964,function,mfg_memcpy,mfg_memcpy,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001B994,function,mfg_reply_send,mfg_reply_send,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BA6A,function,FUN_0001ba6a,mfg_nvm_wait_enter,[C],unique signature vs named E9x M3 image,unique masked-body signature vs named E9x M3 (min 4 instr)
+0001BB38,function,FUN_0001bb38,ecu_in_test_mode,[C],818.3 listing (M-track / vehicle model),test-mode predicate used by the 0x153 MDM status getter
+0001BB6C,function,mfg_banner_send,mfg_banner_send,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BC32,function,ecu_mode_ge,ecu_mode_ge,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BC3E,function,mfg_rx_descriptor,mfg_rx_descriptor,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BC64,function,mfg_rx_buf_end,mfg_rx_buf_end,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BC7A,function,mfg_rx_xform_byte,mfg_rx_xform_byte,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BC92,function,mfg_rx_decode_frame,mfg_rx_decode_frame,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BE28,function,mfg_rx_service,mfg_rx_service,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BE8A,function,mfg_addr_directory,mfg_addr_directory,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001BE9C,function,mfg_cmd_dispatch,mfg_cmd_dispatch,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0001C8EC,function,FUN_0001c8ec,can_153_torque_request_pack,[C],818.3 listing (M-track / vehicle model),scales (request+base 0x400738)*8/5 into 0x400785-0x400787; 818.3 twin of the ZCP 0x1CA78 CAN control function
+0001DC54,function,FUN_0001dc54,can_153_mdm_status_bit,[C],818.3 listing (M-track / vehicle model),CAN 0x153 byte 7 bit 1 getter from _is_mdm (status only)
+0001DE0A,function,pedal_at_most,pedal_at_most,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000205F8,function,valve_flow,valve_flow,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00020624,function,inlet_valve_level,inlet_valve_level,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00020686,function,outlet_valve_level,outlet_valve_level,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0002072C,function,pump_circuit_active,pump_circuit_active,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000209A8,function,driver_mode_is_on,driver_mode_is_on,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000209CA,function,_is_off,_is_off,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000209E4,function,FUN_000209e4,driver_mode_is_longpress,[C],818.3 listing (M-track / vehicle model),true for driver modes 2 or 3; calls driver_mode_get
+000209FE,function,_is_mdm,_is_mdm,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00020A18,function,FUN_00020a18,driver_mode_is_7,[C],818.3 listing (M-track / vehicle model),true for mode 7 only; not used by the yaw/TCS consumers
+00021870,function,FUN_00021870,driver_mode_init,[I],818.3 listing (M-track / vehicle model),writer/init path for the mode word 0x400868
+00021AE8,function,driver_mode_get,driver_mode_get,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00021AF0,function,FUN_00021af0,driver_mode_sub_get,[C],818.3 listing (M-track / vehicle model),"returns 0x400870[ch], the channel-0 sub-value used by lamp/dispatcher logic"
+00021B8C,function,FUN_00021b8c,mode_transition_valid,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.40 / 4-gram 0.55 vs M3:mode_transition_valid; mode-machine neighbourhood
+00021F18,function,FUN_00021f18,driver_mode_ch1_optional,[C],818.3 listing (M-track / vehicle model),"calls driver_mode_get(1); modes 8-11, not mode 4"
+0002209C,function,clamp_s16_0D0444,clamp_s16_0D0444,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000220D8,function,tyre_tol_normalise,tyre_tol_normalise,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00023964,function,FUN_00023964,wheel_minmax_select,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.52 / 4-gram 0.61 vs M3:wheel_minmax_select; already-named wheel_post_frame / wheel_speed_filter
+00023A32,function,wheel_post_frame,wheel_post_frame,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00023F90,function,wheel_speed_filter,wheel_speed_filter,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00024AF4,function,ax_from_front_wheels_0C953C,ax_from_front_wheels_0C953C,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00024F46,function,FUN_00024f46,steer_offset_learn,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.45 / 4-gram 0.57 vs M3:steer_offset_learn; sibling of named steer_offset_fault_monitor
+000250CC,function,steer_offset_fault_monitor,steer_offset_fault_monitor,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0002576C,function,FUN_0002576c,steer_yaw_residual_update,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.43 / 4-gram 0.58 vs M3:steer_yaw_residual_update
+00026258,function,FUN_00026258,r_est_eval,[C],818.3 listing (dataset 10 / yaw reference),yaw estimate from T3/T4[k_ds]; sole reader of those columns
+00026CF8,function,FUN_00026cf8,lat_est_limit_update,[C],818.3 listing (M-track / vehicle model),writes 0x400AA5 = 0xF9 in M-track else 0x8E
+00027D4C,function,FUN_00027d4c,lat_branch_counter,[I],818.3 listing (M-track / vehicle model),MDM-gated counter using 0x400AA5
+00028BE8,function,FUN_00028be8,mdm_threshold_10BD,[C],818.3 listing (M-track / vehicle model),"threshold 0x10BD if MDM or 0x400EB6 bit 0, else 0x85F, vs 0x400A72"
+00028C88,function,FUN_00028c88,mdm_debounce_400AB1,[I],818.3 listing (M-track / vehicle model),runs when driver_mode_is_on or _is_mdm; counter 0x400AB1
+00029542,function,clamp_sym16,clamp_sym16,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0002955A,function,clamp_sym16_091A26,clamp_sym16_091A26,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00029606,function,FUN_00029606,r_ref_eval,[C],818.3 listing (dataset 10 / yaw reference),"closed-form yaw reference from A[k_ds], B[k_ds], v_ch; not mode-4-selected"
+00029898,function,FUN_00029898,r_ref_sibling,[I],818.3 listing (dataset 10 / yaw reference),only other reader of the A/B column bases besides r_ref_eval
+0003151C,function,kwp_valve_pump_test_drive,kwp_valve_pump_test_drive,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00031B54,function,kwp_09_proprietary,kwp_09_proprietary,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00031CF4,function,FUN_00031cf4,kwp_sid21_mode_status,[C],818.3 listing (M-track / vehicle model),sets 0x4005C5 bit 3 when mode is on or 4
+000327B0,function,FUN_000327b0,diag_status_mode_bit,[C],818.3 listing (M-track / vehicle model),sets 0x4011DA bit 3 when mode is on or 4
+000329A4,function,FUN_000329a4,fcan_fault_report,[I],fuzzy n-gram vs named E9x M3 image,"fuzzy 6-gram 0.40 vs M3:fcan_fault_report (4-gram 0.42, below auto floor)"
+00032B48,function,fault_latched,fault_latched,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00033C44,function,cluster_fault_any,cluster_fault_any,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00034570,function,FUN_00034570,comms2_state_machine,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 4-gram 0.64 vs M3:comms2_state_machine (6-gram only 0.38)
+00034BC0,function,cluster_sensor_get,cluster_sensor_get,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00034DE0,function,fcan_rx_0D1_q1,fcan_rx_0D1_q1,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00034E44,function,fcan_rx_0CD_q0,fcan_rx_0CD_q0,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00035074,function,FUN_00035074,tcs_target_to_channel,[I],818.3 listing (M-track / vehicle model),turns 0x400F02 into per-channel shorts via the 0x400644 channel object
+0003518C,function,tcs_driveslip_curve,tcs_driveslip_curve,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+000351C4,function,FUN_000351c4,tcs_driveslip_total,[C],818.3 listing (M-track / vehicle model),"calls tcs_driveslip_curve and writes slip target 0x400F02; fuzzy 4-gram 0.20 vs same M3 name (accepted on dataflow, not score)"
+000355B4,function,FUN_000355b4,tcs_entry_gate,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 4-gram 0.48 / 6-gram 0.39 vs M3:tcs_entry_gate; identical 124-instruction size on both images
+000363FC,function,tcs_yaw_slip_term,tcs_yaw_slip_term,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+00036750,function,FUN_00036750,tcs_mdm_slip_term,[C],818.3 listing (M-track / vehicle model),two _is_mdm sites; writes slip term 0x400ED0 and running max 0x400EC2
+00037D9C,function,FUN_00037d9c,tcs_slip_term_tick,[I],818.3 listing (M-track / vehicle model),calls tcs_mdm_slip_term
+00037F60,function,FUN_00037f60,tcs_slip_aggregate,[I],818.3 listing (M-track / vehicle model),writes 0x400EF2/0x400EF4 from flag-indexed TCS leaves
+000383A8,function,FUN_000383a8,tcs_torque_intervention_flag,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.49 / 4-gram 0.53 vs M3 name; function reads TCS slip-term max 0x400EC2
+00038B4C,function,FUN_00038b4c,tcs_traction_entry,[I],818.3 listing (M-track / vehicle model),calls tcs_slip_aggregate and tcs_slip_term_tick
+00038DB0,function,FUN_00038db0,dme_torque_inputs_scale,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 4-gram 0.47 vs M3:dme_torque_inputs_scale; immediately precedes tcs_torque_request_build at 0x38E06
+00038E06,function,FUN_00038e06,tcs_torque_request_build,[C],818.3 listing (M-track / vehicle model),builds 0x400EBC/0x400EBE from TCS RAM including M-track-affected 0x400EC2
+0003B080,function,FUN_0003b080,is_mdm_flag_write,[C],818.3 listing (M-track / vehicle model),stores _is_mdm() as 0/1 at 0x40100E+7 (0x401015) each cycle
+0003B0D4,function,FUN_0003b0d4,coding_invalid_flags_set,[C],unique signature vs named E9x M3 image,unique masked-body signature vs named E9x M3 (min 4 instr)
+0003B0F6,function,FUN_0003b0f6,coding_image_clear,[C],unique signature vs named E9x M3 image,call-site propagation from a unique signature match vs named E9x M3
+0003B124,function,FUN_0003b124,coding_image_clear_seal,[C],unique signature vs named E9x M3 image,unique masked-body signature vs named E9x M3 (min 4 instr)
+0003B2B0,function,coding_image_checksum,coding_image_checksum,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0003B2EE,function,coding_image_seal,coding_image_seal,[C],already present (ZCP signature port),already present; unambiguous signature or call-site port from the 817.3 ZCP recovery
+0003B3F8,function,FUN_0003b3f8,coding_image_load,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 4-gram 0.52 vs M3:coding_image_load; adjacent already-named coding_image_checksum/seal
+0003B53A,function,FUN_0003b53a,coding_bit6_is_set,[C],818.3 listing (M-track / vehicle model),reads 0x401016+20 mask 64; if set the 0x153 MDM status getter returns 0
+0003B5D8,function,FUN_0003b5d8,coding_k_ds_unpack,[C],818.3 listing (dataset 10 / yaw reference),unpacks coding record 0xA3; stores k_ds = byte 1 bits 4:0 at 0x40100F
+0000F028,label,,yaw_os_bar_mode1_taper,[C],818.3 listing (M-track / vehicle model),site in yaw_os_us_bars_update that reapplies the mode-1 speed taper (and 3.00 deg/s floor) after the MDM /128 raise
+0003D1B2,label,tbl_03d1b2,mdm_os_bar_clamp,[I],818.3 listing (M-track / vehicle model),clamp applied to yaw_os_bar when the local scale-applied bit is set
+0003D1B4,label,tbl_03d1b4,mdm_us_bar_clamp,[I],818.3 listing (M-track / vehicle model),clamp applied to yaw_us_bar with mdm_os_bar_clamp
+0003D1BE,label,tbl_03d1be,mdm_bar_curve_3d1be,[I],818.3 listing (M-track / vehicle model),MDM curve pair used at 0xEDB0 into yaw_bar_tmp_a/b
+0003D1C6,label,tbl_03d1c6,mdm_bar_curve_3d1c6,[I],818.3 listing (M-track / vehicle model),pair of mdm_bar_curve_3d1be
+0003D1CE,label,tbl_03d1ce,mdm_os_bar_v_pts,[C],818.3 listing (M-track / vehicle model),"speed breakpoints {50,120,160,200} km/h for the MDM /128 OS-bar scale"
+0003D1D6,label,tbl_03d1d6,mdm_os_bar_scale_q7,[C],818.3 listing (M-track / vehicle model),"scale numerators {640,512,256,128} used as bar * f(v) / 128"
+0003D1DE,label,tbl_03d1de,mdm_bar_curve_3d1de,[I],818.3 listing (M-track / vehicle model),MDM curve pair used at 0xEEC2
+0003D1E6,label,tbl_03d1e6,mdm_bar_curve_3d1e6,[I],818.3 listing (M-track / vehicle model),pair of mdm_bar_curve_3d1de
+0003D1EE,label,tbl_03d1ee,mdm_bar_curve_3d1ee,[I],818.3 listing (M-track / vehicle model),further MDM /128 rewrite curve of yaw_os_bar
+0003D1F6,label,tbl_03d1f6,mdm_bar_curve_3d1f6,[I],818.3 listing (M-track / vehicle model),pair of mdm_bar_curve_3d1ee
+0003E890,label,tbl_03e890,cal_A_columns,[C],818.3 listing (dataset 10 / yaw reference),flash A[k_ds] columns used by r_ref_eval; not mode-4-selected
+0003E8AC,label,tbl_03e8ac,cal_B_columns,[C],818.3 listing (dataset 10 / yaw reference),flash B[k_ds] columns used by r_ref_eval; not mode-4-selected
+0003F9CC,label,tbl_03f9cc,tcs_mtrack_tail,[C],818.3 listing (M-track / vehicle model),start of the 800-byte mode-indexed traction/yaw tail 0x3F9CC-0x3FCEB
+0003FAB4,label,tbl_03fab4,tcs_driveslip_curve_alt,[I],818.3 listing (M-track / vehicle model),alternate drive-slip curve base used when a status bit 3 is set
+0003FAF8,label,tbl_03faf8,tcs_driveslip_curve_tbl,[C],818.3 listing (M-track / vehicle model),"base of tcs_driveslip_curve records, stride 0x22 indexed by is_mdm_flag"
+0040034B,label,,wheel_side_flags,[C],818.3 listing (M-track / vehicle model),bit 4 = MDM local state from 0x12E44; bit 2 = OS-bar trip from 0xD98C; bits 0-1 also used there
+0040034C,label,,wheel_side_flags_twin,[C],818.3 listing (M-track / vehicle model),"twin status byte of 0x40034B, written only by yaw_os_bar_trip_filter_twin"
+0040042A,label,,yaw_os_bar,[C],818.3 listing (M-track / vehicle model),oversteer entry bar written by yaw_os_us_bars_update; first-trip mode-4 is 13.17 deg/s at 113.8 km/h
+0040042E,label,,yaw_us_bar,[C],818.3 listing (M-track / vehicle model),paired understeer/related bar written with yaw_os_bar
+00400434,label,,yaw_bar_tmp_a,[I],818.3 listing (M-track / vehicle model),temporary bar pair written by the MDM curve sites in yaw_os_us_bars_update
+00400436,label,,yaw_bar_tmp_b,[I],818.3 listing (M-track / vehicle model),temporary bar pair written with yaw_bar_tmp_a
+00400474,label,,yaw_os_corr_filtered,[C],818.3 listing (M-track / vehicle model),filtered OS-bar trip output of 0xD98C; consumed by actuator_cmd_from_yaw_corr and hyd_plant_main
+004004C2,label,,yaw_os_corr_filtered_twin,[C],818.3 listing (M-track / vehicle model),twin filter output of 0xE070; no external xrefs
+004004E8,label,,wheel_side_setpoint,[I],818.3 listing (M-track / vehicle model),setpoint word written by wheel_side_setpoints
+004004F4,label,,wheel_side_state,[C],818.3 listing (M-track / vehicle model),local state char of mdm_wheel_side_state; no xref outside 0x12E44/0x13106
+004004FA,label,,wheel_side_ctr,[I],818.3 listing (M-track / vehicle model),local counter of mdm_wheel_side_state
+004005AE,label,,factory_window_flag,[C],818.3 listing (M-track / vehicle model),bit 1 also forces CAN 0x153 byte 7 bit 1 on
+004005C5,label,,kwp_mode_status,[C],818.3 listing (M-track / vehicle model),KWP status; bit 3 set when mode is on or 4
+00400644,label,,current_channel,[I],818.3 listing (M-track / vehicle model),current wheel/channel object pointer used by actuator and TCS-to-channel paths
+00400738,label,,torque_base,[C],818.3 listing (M-track / vehicle model),base torque added to the request in can_153_torque_request_pack
+00400785,label,,can_153_torque_b0,[C],818.3 listing (M-track / vehicle model),packed CAN 0x153 torque-request byte 0 written by can_153_torque_request_pack
+00400786,label,,can_153_torque_b1,[C],818.3 listing (M-track / vehicle model),packed CAN 0x153 torque-request byte 1
+00400787,label,,can_153_torque_b2,[C],818.3 listing (M-track / vehicle model),packed CAN 0x153 torque-request byte 2 (second-sign / idle path)
+00400788,label,,can_153_torque_flags,[C],818.3 listing (M-track / vehicle model),"flag bits for the packed 0x153 torque request (bit 0 pos, bit 1 neg)"
+00400792,label,,can_variant_byte,[I],818.3 listing (M-track / vehicle model),variant 0x11 selects (request+base)*8/5 scaling in the torque packer
+00400868,label,,driver_mode,[C],818.3 listing (M-track / vehicle model),channel-0 mode word; driver_mode_get(0) returns this
+0040086C,label,,driver_mode_ch1,[I],818.3 listing (M-track / vehicle model),driver_mode_get(1) = 0x400868+4
+00400870,label,,driver_mode_sub,[C],818.3 listing (M-track / vehicle model),channel-0 sub-value array; getter 0x21AF0
+00400922,label,,yaw_vs_bar,[I],818.3 listing (M-track / vehicle model),live yaw term compared against yaw_os_bar in the trip filters
+00400934,label,,yaw_bar_trip_term,[I],818.3 listing (M-track / vehicle model),second term tested against 0x96 in the OS-bar trip compare
+00400A72,label,,mdm_threshold_word,[C],818.3 listing (M-track / vehicle model),compared against 0x10BD or 0x85F in mdm_threshold_10BD
+00400AA5,label,,lat_est_limit,[C],818.3 listing (M-track / vehicle model),"lateral-estimator limit: 0xF9 in M-track, else 0x8E"
+00400AB1,label,,mdm_debounce_ctr,[I],818.3 listing (M-track / vehicle model),counts to 3 then clears in mdm_debounce_400AB1
+00400EB4,label,,can_mdm_status_gate,[C],818.3 listing (M-track / vehicle model),bit 6 must be clear for the 0x153 MDM status bit to be set from _is_mdm
+00400EB6,label,,tcs_status_eb6,[I],818.3 listing (M-track / vehicle model),widely tested TCS status byte; bit 0 also gates the 0x10BD threshold
+00400EB7,label,,torque_sign_flags,[I],818.3 listing (M-track / vehicle model),bit 4 selects the positive packer path; bit 5 the second-sign path
+00400EBC,label,,torque_request_word_a,[C],818.3 listing (M-track / vehicle model),request word from tcs_torque_request_build; input to can_153_torque_request_pack
+00400EBE,label,,torque_request_word_b,[C],818.3 listing (M-track / vehicle model),second request word packed with torque_request_word_a
+00400EC2,label,,tcs_slip_term_max,[C],818.3 listing (M-track / vehicle model),running max of tcs_slip_term; input to tcs_torque_request_build
+00400ED0,label,,tcs_slip_term,[C],818.3 listing (M-track / vehicle model),output of tcs_mdm_slip_term
+00400EF2,label,,tcs_agg_a,[I],818.3 listing (M-track / vehicle model),TCS aggregate written by tcs_slip_aggregate
+00400EF4,label,,tcs_agg_b,[I],818.3 listing (M-track / vehicle model),TCS aggregate pair of tcs_agg_a
+00400F02,label,,tcs_slip_target,[C],818.3 listing (M-track / vehicle model),output of tcs_driveslip_total (curve + quarter-term)
+0040100E,label,,is_mdm_flag_base,[C],818.3 listing (M-track / vehicle model),base of the 8-byte block; cached flag is +7
+0040100F,label,,k_ds,[C],818.3 listing (dataset 10 / yaw reference),dataset index = coding byte 1 bits 4:0; column selector for A/B/T3/T4
+00401015,label,,is_mdm_flag,[C],818.3 listing (M-track / vehicle model),"cached _is_mdm, written each cycle by is_mdm_flag_write"
+00401016,label,,coding_bits_halfword_base,[I],818.3 listing (M-track / vehicle model),coding_bit6_is_set reads +20 from here
+00401035,label,,status_401035,[I],818.3 listing (M-track / vehicle model),"packed status/config; bit 3 skips the MDM /128 OS-bar raise, not the live mode flag"
+00401052,label,,actuator_cmd_byte,[I],818.3 listing (M-track / vehicle model),shared command byte written across 0x4000-0x5600 actuator functions and packed from yaw_os_corr_filtered
+004011DA,label,,diag_mode_status,[C],818.3 listing (M-track / vehicle model),diagnostic status; bit 3 set when mode is on or 4

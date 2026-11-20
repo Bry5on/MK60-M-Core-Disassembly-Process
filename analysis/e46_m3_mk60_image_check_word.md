@@ -1,6 +1,6 @@
 # E46 MK60 image check word
 
-Hand-written note (2026-11-20). Companion to `e46_m3_non_zcp_mk60_image.md`, `zcp_mk60_image.md` and `nonm_mk60_image.md`. Addresses are from the 818.3 non-ZCP image unless a ZCP or non-M twin is named. A small verifier is `tools/check_word_verify.py`.
+Hand-written note (2026-11-20). Companion to `e46_m3_non_zcp_mk60_image.md`, `zcp_mk60_image.md`, `nonm_mk60_image.md` and `e46_m3_mk60_818_3_function_names.md`. Addresses are from the 818.3 non-ZCP image unless a ZCP or non-M twin is named. A small verifier is `tools/check_word_verify.py`.
 
 The three E46 application images each end their used flash with a 32-bit word that start-up and a later walk compare against a hardware residue. This note identifies that residue, the ranges it covers, what a mismatch does, and which common BMW checksums it is not.
 
