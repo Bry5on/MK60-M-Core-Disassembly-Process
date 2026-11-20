@@ -173,3 +173,157 @@ address,kind,old_name,new_name,confidence,source,basis
 00401035,label,,status_401035,[I],818.3 listing (M-track / vehicle model),"packed status/config; bit 3 skips the MDM /128 OS-bar raise, not the live mode flag"
 00401052,label,,actuator_cmd_byte,[I],818.3 listing (M-track / vehicle model),shared command byte written across 0x4000-0x5600 actuator functions and packed from yaw_os_corr_filtered
 004011DA,label,,diag_mode_status,[C],818.3 listing (M-track / vehicle model),diagnostic status; bit 3 set when mode is on or 4
+0003DCB2,label,LAB_0003dcb2,can_veh_cfg_header,[C],818.3 listing (CAN tables),"16-byte vehicle-bus header: byte 0xE=3 TX records, 0xF=9 RX; records follow at 0x3DCC2"
+0003DCC2,label,LAB_0003dcc2,can_veh_msg_records,[C],818.3 listing (CAN tables),"12 x 12-byte vehicle-bus message records (IDs 0x153,0x1F0,0x1F3,0x316,0x329,0x1F5,0x43F,0x43D,0x235,0x615,0x613,0x610)"
+0003DD52,label,LAB_0003dd52,can_veh_sig_lists,[C],818.3 listing (CAN tables),"4-byte signal-list entries for the 12 vehicle-bus records (width, bit<<4|byte, 0, sig index)"
+0003DE56,label,LAB_0003de56,can_veh_mailbox_map,[C],818.3 listing (CAN tables),"mailbox indices for vehicle-bus records 3..11 (bytes 3,4,5,6,7,8,9,0xA,0xB); twin of the ZCP table at a 0x528 shift"
+0003DE98,label,LAB_0003de98,can_veh_sig_table,[C],818.3 listing (CAN tables),"8-byte signal table (type in low 3 bits, timeout reload, word at +4 = getter/setter/RAM); 65 used entries"
+0003F7CD,label,LAB_0003f7cd,can_sens_cfg_header,[C],818.3 listing (CAN tables),"16-byte sensor-bus header: byte 0xE=1 TX, 0xF=3 RX"
+0003F7DD,label,LAB_0003f7dd,can_sens_msg_records,[C],818.3 listing (CAN tables),"4 x 12-byte sensor-bus records: TX 0x002, RX 0x130/0x131/0x132"
+0003F80D,label,LAB_0003f80d,can_sens_sig_lists,[C],818.3 listing (CAN tables),4-byte signal-list entries for the four sensor-bus records
+0003F89C,label,LAB_0003f89c,can_sens_sig_table,[C],818.3 listing (CAN tables),"8-byte sensor-bus signal table (timeouts, RAM words 0x400E9A.., setters, CRC)"
+0040074D,label,LAB_0040074d,can_net_state,[C],818.3 listing (CAN layer / vehicle model),"vehicle-bus network state: bits 0..2 state, bit 3 re-init, bit 4 bus up, bit 6 TX inhibit, bit 7 fault; used by 0x1C064"
+0040074F,label,LAB_0040074f,can_net_status2,[I],818.3 listing (CAN layer / vehicle model),companion status byte read with can_net_state in 0x1C064 (bit 1 gates the running path)
+00400751,label,LAB_00400751,can_speed_invalid_or_status,[I],818.3 listing (CAN layer / vehicle model),byte 0 bit 0 is set by the 0x153 speed getter when two wheels are invalid; also used in 0x329 variant path. Not the ZCP 0x400751 net-state byte
+00400755,label,LAB_00400755,can_msg_status,[C],818.3 listing (CAN layer / vehicle model),12-byte per-record status (bit 0 = received); cleared by 0x1C8AE
+00400765,label,LAB_00400765,can_tx_period_ctr,[C],818.3 listing (CAN layer / vehicle model),per-TX-record period counters; compared to record byte 6
+00400775,label,LAB_00400775,can_busoff_ctr,[C],818.3 listing (CAN layer / vehicle model),vehicle-bus bus-off recovery counter; 0x1C064 posts 0xA0002 when it exceeds 29
+00400778,label,LAB_00400778,can_rx_timeout_ctr,[C],818.3 listing (CAN layer / vehicle model),per-signal-slot RX timeout countdown (slots 0..8 of the signal table)
+00400726,label,LAB_00400726,can_615_mdm_input,[C],818.3 listing (CAN layer / vehicle model),0x615 byte 1 bit 1: CAN input of driver-mode channel 1 (coded feature 3); setter 0x1D470
+00400730,label,LAB_00400730,engine_rpm,[C],818.3 listing (CAN layer / vehicle model),"0x316 bytes 2..3, scaled value<<4/0x33 (x16/51); written by 0x1CF10; consumed by TCS 0x38E06 and others"
+0040072E,label,LAB_0040072e,engine_rpm_deriv,[C],818.3 listing (CAN layer / vehicle model),filtered RPM derivative written beside engine_rpm in 0x1CF10
+00400734,label,LAB_00400734,dme_torque_byte4,[C],818.3 listing (CAN layer / vehicle model),0x316 byte 4 scaled minus torque_base 0x400738 (not RPM on 818.3)
+00400736,label,LAB_00400736,dme_torque_byte1,[C],818.3 listing (CAN layer / vehicle model),0x316 byte 1 scaled minus torque_base; also overlaps the older TPS label role — this is the B1 torque path
+00400732,label,LAB_00400732,dme_tps_byte,[C],818.3 listing (CAN layer / vehicle model),"0x329 byte 5 raw pedal/TPS; 0xFF invalid (bits 2..3 of 0x40073E, timer 0x40078E)"
+0040073B,label,LAB_0040073b,trans_type,[C],818.3 listing (CAN layer / vehicle model),"coded transmission type: 1 or 5 read 0x43F, 6 reads 0x43D"
+0040073E,label,LAB_0040073e,can_316_flags,[C],818.3 listing (CAN layer / vehicle model),"flags from 0x316 (bit 1 from B0.1, plus invalid/variant bits)"
+004007AA,label,LAB_004007aa,steer_angle,[C],818.3 listing (CAN layer / vehicle model),"0x1F5 bytes 0..1 sign-magnitude (bit 15 sign, 0x8000 invalid); setter 0x1D2C4. Not 0x4007AE on 818.3"
+004007AC,label,LAB_004007ac,steer_rate,[C],818.3 listing (CAN layer / vehicle model),"0x1F5 bytes 2..3, same coding as steer_angle; setter 0x1D30A"
+004007B4,label,LAB_004007b4,steer_status_flags,[C],818.3 listing (CAN layer / vehicle model),"0x1F5 invalid/alive flags (bit 4 angle invalid, bit 5 rate invalid, bits 4..6 alive fail)"
+004007B3,label,LAB_004007b3,steer_sensor_status,[C],818.3 listing (CAN layer / vehicle model),0x1F5 byte 5 low nibble mapped to bits 0..1
+004007B0,label,LAB_004007b0,steer_alive_ctr,[C],818.3 listing (CAN layer / vehicle model),0x1F5 byte 5 high nibble alive counter; unchanged value drops the frame
+00400794,label,LAB_00400794,can_613_word,[C],818.3 listing (CAN layer / vehicle model),0x613 16-bit payload unless 0xFFFF (invalid bit 7 of 0x40079D)
+00400798,label,LAB_00400798,can_610_ident,[C],818.3 listing (CAN layer / vehicle model),"latched 0x610 identity bytes (first frame after power-up, checked against EEPROM block 6)"
+0040079D,label,LAB_0040079d,can_610_613_flags,[C],818.3 listing (CAN layer / vehicle model),0x610 compare / 0x613 invalid / 0x610 retry count in low bits
+00400784,label,LAB_00400784,can_torque_scale,[C],818.3 listing (CAN layer / vehicle model),0x329 byte 0 when bits 6..7 are both set: low 6 bits are the torque scale used by 0x316 B1/B4/B5
+00400E8A,label,LAB_00400e8a,can_sens_net_state,[C],818.3 listing (CAN layer / vehicle model),"sensor-bus network state (same bit roles as can_net_state, used by 0x346CC)"
+00400E93,label,LAB_00400e93,can_sens_rx_timeout_ctr,[C],818.3 listing (CAN layer / vehicle model),"sensor-bus RX timeout slots (3), walked by 0x346CC"
+00400E96,label,LAB_00400e96,can_sens_tx_period_ctr,[C],818.3 listing (CAN layer / vehicle model),sensor-bus TX period counters
+00400E9A,label,LAB_00400e9a,cluster_word_0,[C],818.3 listing (CAN layer / vehicle model),"0x130 bytes 0..1, cluster_sensor_get index 0"
+00400E9C,label,LAB_00400e9c,cluster_word_1,[C],818.3 listing (CAN layer / vehicle model),"0x131 bytes 0..1, cluster_sensor_get index 3"
+00400E9E,label,LAB_00400e9e,cluster_word_2,[C],818.3 listing (CAN layer / vehicle model),"0x130 bytes 2..3, cluster_sensor_get index 1"
+00400EA0,label,LAB_00400ea0,cluster_word_3,[C],818.3 listing (CAN layer / vehicle model),"0x131 bytes 2..3, cluster_sensor_get index 4"
+00400EA2,label,LAB_00400ea2,cluster_word_4,[C],818.3 listing (CAN layer / vehicle model),"0x130 bytes 4..5, cluster_sensor_get index 2"
+00400EA4,label,LAB_00400ea4,cluster_word_5,[C],818.3 listing (CAN layer / vehicle model),"0x131 bytes 4..5, cluster_sensor_get index 5"
+0040092C,label,LAB_0040092c,can_153_b0_bit4_src,[I],818.3 listing (CAN layer / vehicle model),"source of 0x153 byte 0 bit 4 (Gauge.S ""Brake""); bit 0 of this byte, getter 0x1D498"
+000158B4,function,FUN_000158b4,can_controller_init,[C],818.3 listing (CAN layer / vehicle model),"brings up 0xFFFC80 (bus 1) or 0x7FFC80 (bus 2); RAM test 0x3B9C0, bit timing 0x3BD08, mailbox program 0x3BBC4; faults 0xA0001 / 0xA0100"
+0001575C,function,FUN_0001575c,can_mailbox_xfer,[C],818.3 listing (CAN layer / vehicle model),"mailbox status/read/write wrapper; param 0 = RX via 0x3BDE4/0x3B8C8, param 4 = TX path"
+000156AC,function,FUN_000156ac,can_mailbox_enable_or_tx,[I],818.3 listing (CAN layer / vehicle model),"param 2==1 enables a mailbox, param 2==9 transmits via 0x3B878"
+00015412,function,FUN_00015412,can_controller_is_32slot,[I],818.3 listing (CAN layer / vehicle model),returns whether this controller instance has 32 message objects (vs 16); used to size init loops
+0003B9C0,function,FUN_0003b9c0,can_hw_mailbox_ram_test,[C],818.3 listing (CAN layer / vehicle model),AA/55 walk of each mailbox data window at base+0x80; failure returns 1 and becomes 0xA0001/0xA0100
+0003BE78,function,FUN_0003be78,can_hw_soft_reset,[C],818.3 listing (CAN layer / vehicle model),"sets control bit 0x200, clears bit 0x80, writes 0x10 at base+7, zeros object RAM"
+0003BB50,function,FUN_0003bb50,can_hw_init_mode,[C],818.3 listing (CAN layer / vehicle model),sets or clears control bit 0x1000 (init/run) on the controller word at base+0
+0003BD08,function,FUN_0003bd08,can_hw_bit_timing_set,[C],818.3 listing (CAN layer / vehicle model),"programs bit timing into controller bytes base+7,+8,+9 as (field-1) BRP/TSEG/SJW from a 4-byte config"
+0003BBC4,function,FUN_0003bbc4,can_hw_mailbox_program,[C],818.3 listing (CAN layer / vehicle model),"writes standard/extended ID into mailbox +0x82/+0x84, sets enable bits in base+0x0E and +0x22"
+0003B878,function,FUN_0003b878,can_hw_tx_write,[C],818.3 listing (CAN layer / vehicle model),copies 8 payload bytes into mailbox +0x86..+0x8D and issues command nibble 0xA0
+0003B8C8,function,FUN_0003b8c8,can_hw_rx_read,[C],818.3 listing (CAN layer / vehicle model),command nibble 0x40 then copies ID and 8 data bytes out of a mailbox
+0003B770,function,FUN_0003b770,can_hw_rx_read_alt,[I],818.3 listing (CAN layer / vehicle model),"same mailbox-read shape as 0x3B8C8 (ID + 8 data bytes, command 0x40); second entry used from the xfer path"
+0003BAE0,function,FUN_0003bae0,can_hw_status_decode,[C],818.3 listing (CAN layer / vehicle model),"decodes controller status at base+0x20 into bus-off, warning, error and overflow bits"
+0003BDE4,function,FUN_0003bde4,can_hw_mailbox_status,[I],818.3 listing (CAN layer / vehicle model),reads mailbox +0x81 command/status and controller word +0x20
+0003BA58,function,FUN_0003ba58,can_hw_mailbox_irq_mask,[I],818.3 listing (CAN layer / vehicle model),sets or clears a mailbox bit in the enable/mask words at base+0x0E and +0x22
+0003BBAC,function,FUN_0003bbac,can_hw_mailbox_abort,[I],818.3 listing (CAN layer / vehicle model),writes command nibble 0xC0 to mailbox +0x81
+0001C064,function,FUN_0001c064,can_veh_net_task,[C],818.3 listing (CAN layer / vehicle model),"10 ms vehicle-bus state machine: bus-off >29 posts 0xA0002, calls RX poll setup 0x1C4CC, clears status 0x1C8AE"
+0001C1D8,function,FUN_0001c1d8,can_veh_timeout_and_txcount,[C],818.3 listing (CAN layer / vehicle model),counts down can_rx_timeout_ctr[0..8] and runs type-4/0x44 handlers; increments can_tx_period_ctr
+0001C2E4,function,FUN_0001c2e4,can_veh_tx_scheduler,[C],818.3 listing (CAN layer / vehicle model),"walks the 3 TX records; when the period counter reaches record byte 6, packs via 0x1C40A and sends via 0x1568C"
+0001C40A,function,FUN_0001c40a,can_veh_tx_pack_signal,[C],818.3 listing (CAN layer / vehicle model),"signal types 0 getter, 1 RAM word, 2 call with frame buffer, 3 constant, 4 reload RX timeout; inserts via 0x1C684"
+0001C4CC,function,FUN_0001c4cc,can_veh_rx_poll,[C],818.3 listing (CAN layer / vehicle model),"walks RX records 3..11, mailbox read 0x1575C, unpacker 0x1C594"
+0001C594,function,FUN_0001c594,can_veh_rx_unpack_signal,[C],818.3 listing (CAN layer / vehicle model),"extracts a field and calls the setter, or reloads can_rx_timeout_ctr on type 4"
+0001C8AE,function,FUN_0001c8ae,can_veh_rx_status_clear,[C],818.3 listing (CAN layer / vehicle model),zeros the 12 can_msg_status bytes
+0001C668,function,FUN_0001c668,can_bitfield_extract,[C],818.3 listing (CAN layer / vehicle model),reads n bits at a byte/bit offset from a frame buffer
+0001C684,function,FUN_0001c684,can_bitfield_insert,[C],818.3 listing (CAN layer / vehicle model),writes n bits at a byte/bit offset into a frame buffer
+0001C6B0,function,FUN_0001c6b0,can_ram_field_write,[C],818.3 listing (CAN layer / vehicle model),writes an extracted field into a RAM word at a bit offset (type-1 RX)
+000346CC,function,FUN_000346cc,can_sens_timeout_and_txcount,[C],818.3 listing (CAN layer / vehicle model),"sensor-bus twin of 0x1C1D8: 3 timeout slots at 0x400E93, TX counters at 0x400E96"
+0003481C,function,FUN_0003481c,can_sens_tx_scheduler,[C],818.3 listing (CAN layer / vehicle model),"sensor-bus TX scheduler (one record, mailbox bus 2)"
+000349F6,function,FUN_000349f6,can_sens_rx_poll,[C],818.3 listing (CAN layer / vehicle model),sensor-bus RX poll of records 1..3 via 0x1575C bus 2 and unpacker 0x34964
+00034784,function,FUN_00034784,can_sens_tx_pack_signal,[I],818.3 listing (CAN layer / vehicle model),"sensor-bus TX packer, called from 0x3481C"
+00034964,function,FUN_00034964,can_sens_rx_unpack_signal,[I],818.3 listing (CAN layer / vehicle model),"sensor-bus RX unpacker, called from 0x349F6"
+00034EA0,function,FUN_00034ea0,can_sens_002_getter,[C],818.3 listing (CAN layer / vehicle model),"0x002 16-bit getter; two instructions, returns 0 (wake/sync frame)"
+00034D94,function,FUN_00034d94,can_sens_crc_check,[I],818.3 listing (CAN layer / vehicle model),type-2 whole-frame entry shared by 0x130/0x131/0x132 (CRC / drop-frame)
+00034EA4,function,FUN_00034ea4,can_sens_timeout_130,[C],818.3 listing (CAN layer / vehicle model),0x130 missing 14 ticks; posts 0xA1000
+00034EA8,function,FUN_00034ea8,can_sens_timeout_131,[C],818.3 listing (CAN layer / vehicle model),"0x131 missing 14 ticks; longer stub, posts 0xA1000"
+00034EAC,label,LAB_00034eac,can_sens_timeout_132,[I],818.3 listing (CAN layer / vehicle model),signal-table pointer for the 0x132 timeout (14 ticks)
+0001CE26,function,FUN_0001ce26,can_rx_329_variant,[C],818.3 listing (CAN layer / vehicle model),0x329 byte 0: bits 6..7 clear → can_variant_byte (0x11 or 0x36 else fault 0xA0002); both set → can_torque_scale
+0001CEB6,function,FUN_0001ceb6,can_rx_316_b0_bit1,[C],818.3 listing (CAN layer / vehicle model),"0x316 byte 0 bit 1: flag in can_316_flags, timer 0x40078C / 0x4007A6"
+0001CF98,function,FUN_0001cf98,can_rx_316_b0_bit2,[C],818.3 listing (CAN layer / vehicle model),"0x316 byte 0 bit 2: timer 0x40078A = 0xFF when 1, else 0x48"
+0001CFAE,function,FUN_0001cfae,can_rx_316_b0_bit4,[C],818.3 listing (CAN layer / vehicle model),"0x316 byte 0 bits 4..5, only when variant is 0x11"
+0001CF10,function,FUN_0001cf10,can_rx_316_rpm,[C],818.3 listing (CAN layer / vehicle model),"0x316 bytes 2..3 → engine_rpm = value×16/51, derivative engine_rpm_deriv, sets bit 5 of can_153_torque_flags"
+0001D0F4,function,FUN_0001d0f4,can_rx_316_b1_torque,[C],818.3 listing (CAN layer / vehicle model),"0x316 byte 1 scaled (variant 0x11: ×scale×32/51, else ×scale×64/164) minus torque_base → 0x400736"
+0001D05A,function,FUN_0001d05a,can_rx_316_b4_torque,[C],818.3 listing (CAN layer / vehicle model),"0x316 byte 4, same scale, minus torque_base → 0x400734"
+0001D096,function,FUN_0001d096,can_rx_316_b5_base_torque,[C],818.3 listing (CAN layer / vehicle model),"0x316 byte 5, same scale, writes torque_base 0x400738"
+0001DD04,function,FUN_0001dd04,can_timeout_316,[C],818.3 listing (CAN layer / vehicle model),0x316 missing 71 ticks; posts 0xA0008
+0001D130,function,FUN_0001d130,can_rx_329_tps,[C],818.3 listing (CAN layer / vehicle model),0x329 byte 5 → 0x400732; 0xFF invalid
+0001DCDE,function,FUN_0001dcde,can_timeout_329,[C],818.3 listing (CAN layer / vehicle model),0x329 missing 71 ticks; posts 0xA0008
+0001D2C4,function,FUN_0001d2c4,can_rx_1f5_angle,[C],818.3 listing (CAN layer / vehicle model),0x1F5 bytes 0..1 → steer_angle 0x4007AA
+0001D30A,function,FUN_0001d30a,can_rx_1f5_rate,[C],818.3 listing (CAN layer / vehicle model),0x1F5 bytes 2..3 → steer_rate 0x4007AC
+0001D334,function,FUN_0001d334,can_rx_1f5_status,[C],818.3 listing (CAN layer / vehicle model),0x1F5 byte 5 bits 0..3 → steer_sensor_status
+0001D3A0,function,FUN_0001d3a0,can_rx_1f5_alive,[C],818.3 listing (CAN layer / vehicle model),0x1F5 byte 5 bits 4..7 alive counter; repeat clears the received bit
+0001D16C,function,FUN_0001d16c,can_rx_43f_b5_bit2,[C],818.3 listing (CAN layer / vehicle model),0x43F byte 5 bit 2 → bit 6 of can_153_torque_flags; fault 0xC0002 if it contradicts trans_type 1 or 5
+0001D1D8,function,FUN_0001d1d8,can_rx_43f_b0_bit3,[C],818.3 listing (CAN layer / vehicle model),"0x43F byte 0 bit 3, gated on trans_type 1 or 5"
+0001D1FA,function,FUN_0001d1fa,can_rx_43f_gear,[C],818.3 listing (CAN layer / vehicle model),"0x43F byte 0 bits 0..2 gear, trans_type 1 or 5; handed to the shared gear writer"
+0001D264,function,FUN_0001d264,can_rx_43f_b0_bit6,[C],818.3 listing (CAN layer / vehicle model),"0x43F byte 0 bits 6..7, trans_type 1 or 5"
+0001D212,function,FUN_0001d212,can_rx_43d_b0_bit3,[C],818.3 listing (CAN layer / vehicle model),"0x43D byte 0 bit 3 when trans_type is 6, else fault 0xC0002"
+0001D250,function,FUN_0001d250,can_rx_43d_gear,[C],818.3 listing (CAN layer / vehicle model),0x43D byte 0 bits 0..2 gear when trans_type is 6
+0001D012,function,FUN_0001d012,can_rx_235_b0_bit4,[C],818.3 listing (CAN layer / vehicle model),"0x235 byte 0 bits 4..5, only with variant 0x36"
+0001D470,function,FUN_0001d470,can_rx_615_mdm_bit,[C],818.3 listing (CAN layer / vehicle model),0x615 byte 1 bit 1 → can_615_mdm_input bit 0
+0001DDC4,function,FUN_0001ddc4,can_timeout_615,[C],818.3 listing (CAN layer / vehicle model),0x615 missing 142 ticks; posts 0xB0004
+0001D442,function,FUN_0001d442,can_rx_613_word,[C],818.3 listing (CAN layer / vehicle model),0x613 bytes 0..1 → 0x400794 unless 0xFFFF
+0001DD9E,function,FUN_0001dd9e,can_timeout_613,[C],818.3 listing (CAN layer / vehicle model),0x613 missing 142 ticks; posts 0xB0004
+0001D3D6,function,FUN_0001d3d6,can_rx_610_ident,[C],818.3 listing (CAN layer / vehicle model),"whole 0x610 frame: first frame latched to 0x400798, later mismatches set a flag"
+0001DD64,function,FUN_0001dd64,can_timeout_610,[C],818.3 listing (CAN layer / vehicle model),"0x610 timeout: re-arms, then posts 0xB0004 and 0xB0002"
+0001D994,function,FUN_0001d994,can_153_get_tq_flag_pos,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 0 bit 0 = can_153_torque_flags bit 0 (positive request)
+0001D9BA,function,FUN_0001d9ba,can_153_get_tq_flag_neg,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 0 bit 1 = can_153_torque_flags bit 1 (negative / drag request)
+0001D884,function,FUN_0001d884,can_153_get_b0_bit2,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 0 bit 2 from can_mdm_status_gate bit 6 with tcs_status_eb6 bits 4..5 clear
+0001DA10,function,FUN_0001da10,can_153_get_b0_bit3,[C],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 3 from 0x400EB5 bit 2; Gauge.S ""DSC Active"" — not shown to be a general DSC-active flag"
+0001D498,function,FUN_0001d498,can_153_get_b0_bit4,[C],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 4 from 0x40092C bit 0 (Gauge.S ""Brake"", [I] as the brake-light switch)"
+0001D4DE,function,FUN_0001d4de,can_153_get_b0_bit5_lamp,[I],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 5, lamp-arbiter path (decompiler lost the id)"
+0001D4B0,function,FUN_0001d4b0,can_153_get_b0_bit6_lamp,[I],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 6, lamp-arbiter path"
+0001D4C8,function,FUN_0001d4c8,can_153_get_b0_bit7_lamp,[I],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 7, lamp-arbiter path"
+0001D7FC,function,FUN_0001d7fc,can_153_get_warn_lamp,[I],818.3 listing (CAN layer / vehicle model),"0x153 byte 1 bit 0, DSC warning lamp / pulse counter 0x40079F/0x4007A0"
+0001D51A,function,FUN_0001d51a,can_153_get_fault_summary,[C],818.3 listing (CAN layer / vehicle model),"0x153 byte 1 bit 1, OR of several fault/status bits including 0x401035, 0x400F00, tcs_status_eb6, 0x400F60, 0x400932"
+0001D7C2,function,FUN_0001d7c2,can_153_get_b1_bit2,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 1 bit 2 = can_speed_invalid_or_status bit 0 (two wheels invalid)
+0001D730,function,FUN_0001d730,can_153_get_vehicle_speed,[C],818.3 listing (CAN layer / vehicle model),"0x153 13-bit speed at byte 1 bit 3: first two wheel blocks, sum×4/50 or one×4/25, 0x1FFF if neither; 0.0625 km/h/count"
+0001D7CA,function,FUN_0001d7ca,can_153_get_torque_b3,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 3 = can_153_torque_b0 0x400785
+0001D970,function,FUN_0001d970,can_153_get_torque_b4,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 4 = can_153_torque_b2 0x400787
+0001D7EE,function,FUN_0001d7ee,can_153_get_b5_variant,[C],818.3 listing (CAN layer / vehicle model),"0x153 byte 5 = 0x00 when variant is 0x11, else 0xFF"
+0001D94C,function,FUN_0001d94c,can_153_get_torque_b6,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 6 = can_153_torque_b1 0x400786
+0001D8C2,function,FUN_0001d8c2,can_153_get_b7_bit2,[I],818.3 listing (CAN layer / vehicle model),"0x153 byte 7 bit 2, latched when speed word 0x401038 > 1000 or all wheels invalid"
+0001D4F0,function,FUN_0001d4f0,can_153_get_b7_mode_bits,[I],818.3 listing (CAN layer / vehicle model),0x153 byte 7 bits 4..5 from a driver-mode indication byte (decompiler lost the RAM pool)
+0001DB56,function,FUN_0001db56,can_153_get_b7_bit6,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 7 bit 6 from 0x400931 bit 4
+0001D4A0,function,FUN_0001d4a0,can_153_get_b7_bit7_switch,[I],818.3 listing (CAN layer / vehicle model),"0x153 byte 7 bit 7, port-input switch (decompiler lost the getter target)"
+0001D66C,function,FUN_0001d66c,can_1f0_pack_wheel_status,[C],818.3 listing (CAN layer / vehicle model),0x1F0 type-2 frame-buffer getter: rotating 3-bit status in the high bits of each 16-bit wheel field
+0001D568,function,FUN_0001d568,can_1f0_get_ws_fl,[C],818.3 listing (CAN layer / vehicle model),"0x1F0 bits 0..12: wheel block 0x401700+0x18, max(speed, 0x4005B0)×4/25, or 0x1FFF"
+0001D59C,function,FUN_0001d59c,can_1f0_get_ws_fr,[C],818.3 listing (CAN layer / vehicle model),"0x1F0 bytes 2..3, wheel block 0x401700+0x58"
+0001D5D6,function,FUN_0001d5d6,can_1f0_get_ws_rl,[C],818.3 listing (CAN layer / vehicle model),"0x1F0 bytes 4..5, wheel block 0x401700+0x98"
+0001D612,function,FUN_0001d612,can_1f0_get_ws_rr,[C],818.3 listing (CAN layer / vehicle model),"0x1F0 bytes 6..7, wheel block 0x401700+0xD8"
+0001DA1A,function,FUN_0001da1a,can_1f3_get_yaw,[C],818.3 listing (CAN layer / vehicle model),"0x1F3 bytes 0..1 from 0x400978, LSB 0.12223 deg/s, sign-magnitude in bits 6..15"
+0001DA9E,function,FUN_0001da9e,can_1f3_get_b4_bit2,[C],818.3 listing (CAN layer / vehicle model),0x1F3 byte 4 bit 2; already listed in can_1f3_scaling.md as getter 0x1DA9E
+0001DB60,function,FUN_0001db60,can_1f3_get_ay,[C],818.3 listing (CAN layer / vehicle model),"0x1F3 10 bits at byte 4 bit 6, LSB 0.004894 g, offset 512"
+0001DBEA,function,FUN_0001dbea,can_1f3_get_ax,[C],818.3 listing (CAN layer / vehicle model),"0x1F3 10 bits at byte 3 bit 0, offset 511, LSB 0.003193 g [I]"
+0001DAAA,function,FUN_0001daaa,can_1f3_get_b7_bit0,[C],818.3 listing (CAN layer / vehicle model),0x1F3 byte 7 bit 0; listed in can_1f3_scaling.md
+0001DB22,function,FUN_0001db22,can_1f3_get_b7_bit3,[C],818.3 listing (CAN layer / vehicle model),0x1F3 byte 7 bit 3; listed in can_1f3_scaling.md
+0003A1BE,function,FUN_0003a1be,msr_or_drag_term_update,[I],818.3 listing (TCS / vehicle model),"only writer of 0x400F8E (second-sign path in tcs_torque_request_build); also reads 0x400734/0x400738 engine torque. Best MSR-candidate, not proven exclusive of TCS"
+00021B48,function,FUN_00021b48,driver_mode_channel_read,[C],818.3 listing (M-track / vehicle model),"returns button state for mode SM: ch0 via dsc_button_thunk 0x21B3C, ch1 via 0x1711C, else -1. Does not read 0x400726"
+00021B3C,function,FUN_00021b3c,dsc_button_thunk,[C],818.3 listing (M-track / vehicle model),channel-0 thunk; calls 0x170C6 (GPIO 0x40063A bit 6)
+000170C6,function,FUN_000170c6,dsc_button_gpio_get,[C],818.3 listing (M-track / vehicle model),hardwired DSC button: pressed when 0x40063A bit 6 is set; -1 if validity bits (0x40063A bit 3 and 0x40063B bit 4) are clear
+0001711C,function,FUN_0001711c,driver_mode_ch1_gpio_get,[C],818.3 listing (M-track / vehicle model),channel-1 button of the second coded function: pressed when 0x40063B bit 6 is clear; same validity bits. Not the 0x615 CAN bit
+0001704A,function,FUN_0001704a,gpio_input_shadow_copy,[C],818.3 listing (M-track / vehicle model),copies three port bytes from 0xEFFF28/2A/2B into 0x40063A..0x40063C
+0003B158,function,FUN_0003b158,coding_feature_get,[C],818.3 listing (M-track / vehicle model),feature-index switch; case 3 returns coding_feature3_bit (bit 9 of the halfword at 0x401016+0x14)
+0003B57C,function,FUN_0003b57c,coding_feature3_bit,[C],818.3 listing (M-track / vehicle model),( *(ushort*)(0x401016+0x14) & 0x200 ) >> 9; gates the 0x615 setter and the KWP channel-1 status field
+000218BA,function,FUN_000218ba,driver_mode_button_sm,[C],818.3 listing (M-track / vehicle model),"per-tick two-channel state machine; reads buttons only through 0x21B48, writes mode words via the table lookup"
+000217C0,function,FUN_000217c0,driver_mode_table_lookup,[C],818.3 listing (M-track / vehicle model),fires a transition-table row into driver_mode 0x400868[ch] / sub 0x400870[ch]
+00021CC0,function,FUN_00021cc0,driver_mode_row_enable_init,[C],818.3 listing (M-track / vehicle model),builds 28 row-enable bytes at 0x40088C from coding_bit6_is_set (rows 0..3 vs 4..9) ; remaining rows enabled
+0001BF5E,function,FUN_0001bf5e,can_rx_status_invalidate,[I],818.3 listing (CAN layer / vehicle model),"init-time OR of stale/invalid bits across CAN flag bytes, including 0x400729 bit 7 and 0x400728 bits 0..1; does not read 0x400726"
+0040063A,label,LAB_0040063a,gpio_input_shadow,[C],818.3 listing (M-track / vehicle model),first of three copied port-input bytes; bit 6 is the DSC button (pressed when set)
+0040063B,label,LAB_0040063b,gpio_input_shadow_b1,[C],818.3 listing (M-track / vehicle model),second port-input byte; bit 6 is channel-1 (pressed when clear); bits 3 and 4 of 0x40063A/63B are validity
+00400729,label,LAB_00400729,can_615_timeout_flag,[C],818.3 listing (CAN layer / vehicle model),bit 7 set on 0x615 timeout or when feature 3 is off (packer); cleared by a valid 0x615 setter. No mode-logic reader
+0040102A,label,LAB_0040102a,coding_word_plus14,[C],818.3 listing (M-track / vehicle model),halfword at 0x401016+0x14: bit 6 = two- vs three-position DSC cycle (0x3B53A); bit 9 = feature 3 (0x3B57C)

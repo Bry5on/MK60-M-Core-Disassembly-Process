@@ -1,6 +1,6 @@
 # E46 MK60 K-line access and flash
 
-Hand-written note (2026-11-20). Companion to `e46_m3_non_zcp_mk60_image.md`, `nonm_mk60_image.md`, `zcp_mfg_exec_path.md` and `e46_m3_mk60_image_check_word.md`. Addresses are from the 818.3 non-ZCP image unless a twin is named.
+Hand-written note (2026-11-20). Companion to `e46_m3_non_zcp_mk60_image.md`, `nonm_mk60_image.md`, `zcp_mfg_exec_path.md`, `e46_m3_mk60_image_check_word.md` and `e46_m3_mk60_can_map.md` (no `0x7xx` diagnostic identifiers on either CAN bus; workshop access remains K-line). Addresses are from the 818.3 non-ZCP image unless a twin is named.
 
 This is a description of what the application image contains — and what it does not. It is not a procedure for programming a module.
 
