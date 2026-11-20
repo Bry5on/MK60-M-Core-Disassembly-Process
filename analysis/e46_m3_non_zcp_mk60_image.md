@@ -198,7 +198,7 @@ The fuzzy tail stops under the floor at the same candidates as in the ZCP, plus 
 Later notes on this image:
 
 - `e46_m3_mk60_image_check_word.md` — the vector and main-range check word (left-shift MISR at `0xEF8400`).
-- `e46_m3_dataset10_vs_zcp.md` — dataset-10 A/B/T0/T3/T4 and the 818.3 versus ZCP calibration inventory.
+- `e46_m3_dataset10_vs_zcp.md` — dataset-10 A/B/T0/T3/T4, the live `k_ds` mapping (`BAUART_MK60 = csl` → 10 on the example C06 car), the mode-1 / mode-4 oversteer bars, and the 818.3 versus ZCP calibration inventory.
 - `e46_m3_mk60_kline_access_and_flash.md` — factory K-line access, the absence of a bootloader, and the memory map.
 - `e46_steering_ratio_tables.md` — the six steering-ratio sets, including set 2 versus set 4.
 

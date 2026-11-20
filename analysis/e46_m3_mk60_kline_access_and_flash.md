@@ -51,7 +51,7 @@ The gates and the RAM windows they can see have not been exercised on hardware i
 
 ## Calibration is read from flash
 
-Dataset-10 A and B (and T0, T3, T4) are `ld.h`’d from flash on each evaluation of `r_ref` / `r_est`. There is no init copy of those tables into RAM, and no factory command that pokes a new B into a RAM alias of the column. Coding / NCS selects the dataset *index* (`k_ds`), not the cells themselves. See `e46_m3_dataset10_vs_zcp.md`. [C]
+Dataset-10 A and B (and T0, T3, T4) are `ld.h`’d from flash on each evaluation of `r_ref` / `r_est`. There is no init copy of those tables into RAM, and no factory command that pokes a new B into a RAM alias of the column. Coding / NCS selects the dataset *index* (`k_ds`), not the cells themselves: `BAUART` (id `0x0425`, `BAUART_MK60`) is packed coding byte 1, mask `0x1F`, stored at `0x40100F` on 818.3. In C06, data 10 is `coupe_s` / `csl`, 11 is `coupe`, and 12 is `cabrio`. The example car’s traces read `BAUART_MK60 = csl`, so they run dataset 10; that coding cannot install the ZCP `B = 2400`. See `e46_m3_dataset10_vs_zcp.md`. [C]
 
 ## Memory map
 
