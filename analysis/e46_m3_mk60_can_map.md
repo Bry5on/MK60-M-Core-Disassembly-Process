@@ -80,7 +80,7 @@ All three frames are DLC 8, period 1 tick (10 ms), flags `0x08`.
 | 0.0 | 1 | `0x1D994` | `can_153_torque_flags` `0x400788` bit 0 — positive torque request **[C]** |
 | 0.1 | 1 | `0x1D9BA` | `0x400788` bit 1 — negative / drag request **[C]** |
 | 0.2 | 1 | `0x1D884` | `can_mdm_status_gate` `0x400EB4` bit 6 and `tcs_status_eb6` bits 4..5 clear **[C]** |
-| 0.3 | 1 | `0x1DA10` | `0x400EB5` bit 2. Not shown to be a general “DSC active” flag **[I]** |
+| 0.3 | 1 | `0x1DA10` `can_153_get_dsc_active` | `0x400EB5` bit 2, whose only writer is `dsc_active_153_flag_update` (`0x383A8`). Outside TCS it is `(0x400932 & 3) != 0`, meaning an AYC yaw controller (OS or US) or the torque-path flag is active. During TCS (`0x400EB6` bit 0) it is a self-latched TCS flag. This is a controller state, not valve activity. It stays on through hysteresis (hold bar = 0.5 × entry bar) plus a 26-tick (0.26 s) release counter; see `e46_m3_mk60_dsc_active_dwell.md` **[C]** |
 | 0.4 | 1 | `0x1D498` | `0x40092C` bit 0. Likely the brake-light switch **[I]** |
 | 0.5 | 1 | `0x1D4DE` | lamp arbiter **[I]** (the decompiler lost the id) |
 | 0.6 | 1 | `0x1D4B0` | lamp arbiter **[I]** |

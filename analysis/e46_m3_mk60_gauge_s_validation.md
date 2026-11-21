@@ -36,14 +36,26 @@ A bicycle-model overlay of firmware yaw versus dataset-10 `r_ref` on the example
 | Longitudinal G | `0x1F3`, `((x & 1023) − 511) × 0.003193` | Packing and offset **[C]**, LSB **[I]** |
 | Steering angle | `0x1F5`, 0.044 sign-magnitude | Packing **[C]**; 0.044 vs 0.04375 **[?]** |
 | Speedo | `0x153` starting at byte 1, `(x >> 4 > 4) × (x >> 3) × 0.03665` mph | Bit extract **[C]** (drops the three flag bits at 1.0..1.2, then the 13-bit speed). The `0.03665` factor is 0.0625 km/h × a 0.9437 tyre factor × 0.621371 — a **display** choice, not the firmware view. Do not feed Speedo into `r_ref`. |
-| Brake | `0x153` byte 0 bit 4 | Matches getter `0x1D498` / `0x40092C` bit 0. Physical meaning **[I]** (likely the brake-light switch). A public DME bit at `0x329` byte 6 is **not** unpacked by this module. |
-| “DSC Active” | `0x153` byte 0 bit 3 | **Unverifiable / likely mislabelled.** This is `0x400EB5` bit 2, not a general DSC-active flag. Prefer byte 0 bits 0..1 (torque-request active) or byte 7 bit 1 (MDM status). |
+| Brake | `0x153` byte 0 bit 4 | Matches getter `0x1D498` / `0x40092C` bit 0. **Verified as the brake-pedal / brake-light switch** in a 2026-11-20 drive log: on for 100 % of hard braking, off during every predicted oversteer hold, off on lift-off without the pedal **[C]** for the log behaviour. Suggest renaming the Gauge.S channel to "Brake Pedal". A public DME bit at `0x329` byte 6 is **not** unpacked by this module. |
+| “DSC Active” | `0x153` byte 0 bit 3 | **AYC yaw-controller active**, not valve or pump activity. It is `0x400EB5` bit 2 = `(0x400932 & 3) != 0` outside TCS (OS or US controller on, or the torque-path flag), or a self-latched TCS flag while `0x400EB6` bit 0 is set **[C]**. It switches on after a 5/17/35-tick up-count over the entry bar and is held through **hysteresis** (hold bar = 0.5 × entry bar). It then drops after a **26-tick (0.26 s) release counter** below the hold bar. There is no fixed minimum on-time. See `e46_m3_mk60_dsc_active_dwell.md`. Still useful as the "DSC intervened" marker for brake-only events. |
 | Torque-request byte | `0x153` byte 3, `x × 0.392` | Byte 3 **is** `can_153_torque_b0` (`0x400785`) **[C]**. `× 0.392` ≈ 100/255 is a reasonable 0..100 % display if `0xFF` means “no cut” **[I]**. Idle is `0xFF`; a live intervention is packed with variant-`0x11` `(request + base) × 8 / 5`. Treat the percentage as indicative, not a calibrated newton-metre. |
 | RPM | `0x316` × 0.15625 | **Correct as a public bus scale** **[C]**. Internal `0x400730` uses `× 16/51`. |
 | Torque (`0x316` byte 4) | `x × 0.390625` | **Correct as a 0..100 % bus display** **[I]** versus the firmware’s variant-dependent scale into `0x400734`. |
 | TPS | `0x329` byte 5 × 0.390625 | **Correct** as 0..100 % of the raw byte the module stores at `0x400732`. |
 | Coolant, ambient pressure (`0x329` B1 / B2), oil temp / cruise (`0x545`), ambient temp (`0x615` B3) | public encodings | **Not consumed by this DSC.** Fine on a logger that sees the whole vehicle bus. `0x545` in particular is absent from the MK60 receive table. |
 | Gear derived from Speedo / RPM / clutch | derived | Not a DSC CAN signal. |
+
+## Log validation (2026-11-20 drive)
+
+A 100 Hz Gauge.S log (about 7.5 min, five DSC Active events, all brake-only, with `0x153` byte 3 at `0xFF` throughout) was compared offline with the primary predictor maths (dataset-10 `r_ref`, mode-1 set-A bars, hold = bar × 0.5, MK60-view speed).
+
+- **5/5** DSC Active events fell inside a predicted oversteer hold. Four of them were 60–68 mph sweepers (two right, two left), and one was a 49 mph right.
+- **M-track:** the one predicted mode-1 trip without DSC Active, a 35 mph tight left with 8.95 °/s OS error, was driven in M-track. It stayed well under the live mode-4 bar (19.3 °/s at 62 km/h MK60 view), as `e46_m3_mk60_mtrack_mode4.md` predicts.
+- **ZCP `r_ref`:** with the ZCP dataset (`v_ch` 119.04), the two 60–68 mph right-hand sweeper events would not have tripped (one clears by only 0.09 °/s), while the other three still trip. Whole-drive predicted first-trips go from 44 to 12, and hold time from 16.8 s to 2.4 s.
+- **Dwell:** the bit falls 0.19–0.33 s after the error leaves the hold band in three of the five events, which matches the 0.26 s release counter. Details, including the two outliers, are in `e46_m3_mk60_dsc_active_dwell.md`.
+- **Brake:** behaves as the pedal switch (see the table above).
+
+To match DSC Active timing, a predictor needs the hold = bar × 0.5 latch plus a release delay of about 0.26 s (26 samples at 100 Hz).
 
 ## Useful channels this listing unlocks
 

@@ -9,7 +9,7 @@ address,kind,old_name,new_name,confidence,source,basis
 0000E070,function,FUN_0000e070,yaw_os_bar_trip_filter_twin,[C],818.3 listing (M-track / vehicle model),same compare as yaw_os_bar_trip_filter; writes twin 0x4004C2 / 0x40034C with no external readers
 0000E834,function,FUN_0000e834,yaw_os_us_bars_wrapper,[C],818.3 listing (M-track / vehicle model),calls yaw_os_us_bars_update then yaw_bars_secondary
 0000E844,function,FUN_0000e844,yaw_os_us_bars_update,[C],818.3 listing (M-track / vehicle model),five _is_mdm sites; writes OS/US bars 0x40042A/0x40042E/0x400434/0x400436 including MDM /128 then 0xF028 taper
-0000F4B0,function,FUN_0000f4b0,yaw_bars_secondary,[I],818.3 listing (M-track / vehicle model),reads the four bar words written by yaw_os_us_bars_update
+0000F4B0,function,FUN_0000f4b0,ayc_yaw_ctrl_activation,[C],818.3 listing (DSC Active / AYC activation),"AYC OS/US controller on/off state machine: up/down counters 0x400458/0x40045A, entry debounce 35/17/5 ticks (0x3D16A/0x3D16C/0x3D160), hysteresis entry bar 0x40042A vs hold 0x40042E, release after counter < -25 (0x3D15C) = 26 ticks; writes 0x40045D bits 0/1/3 and 0x400932 bit0. Was yaw_bars_secondary"
 00012E44,function,FUN_00012e44,mdm_wheel_side_state,[C],818.3 listing (M-track / vehicle model),writes 0x40034B bit 4 from _is_mdm; local state machine only
 00013106,function,FUN_00013106,wheel_side_state_step,[I],818.3 listing (M-track / vehicle model),only called from mdm_wheel_side_state; uses 0x40034B bit 3
 000133EE,function,FUN_000133ee,wheel_side_setpoints,[I],818.3 listing (M-track / vehicle model),called from mdm_wheel_side_state; writes setpoints around 0x4004E8
@@ -99,7 +99,7 @@ address,kind,old_name,new_name,confidence,source,basis
 00036750,function,FUN_00036750,tcs_mdm_slip_term,[C],818.3 listing (M-track / vehicle model),two _is_mdm sites; writes slip term 0x400ED0 and running max 0x400EC2
 00037D9C,function,FUN_00037d9c,tcs_slip_term_tick,[I],818.3 listing (M-track / vehicle model),calls tcs_mdm_slip_term
 00037F60,function,FUN_00037f60,tcs_slip_aggregate,[I],818.3 listing (M-track / vehicle model),writes 0x400EF2/0x400EF4 from flag-indexed TCS leaves
-000383A8,function,FUN_000383a8,tcs_torque_intervention_flag,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 6-gram 0.49 / 4-gram 0.53 vs M3 name; function reads TCS slip-term max 0x400EC2
+000383A8,function,FUN_000383a8,dsc_active_153_flag_update,[C],818.3 listing (DSC Active / AYC activation),"sole writer of 0x400EB5 bit 2 (0x153 b0.3 'DSC Active'). If tcs_status_eb6 bit0: set on (bit1 && slip_max-ref < 7/8*X && (<3/4*X || 0x400EE4<13)) or eb6 bit2, else self-latched until eb6 bit0 clears; otherwise = (yaw_ctrl_active_flags & 3) != 0. Was tcs_torque_intervention_flag (fuzzy)"
 00038B4C,function,FUN_00038b4c,tcs_traction_entry,[I],818.3 listing (M-track / vehicle model),calls tcs_slip_aggregate and tcs_slip_term_tick
 00038DB0,function,FUN_00038db0,dme_torque_inputs_scale,[I],fuzzy n-gram vs named E9x M3 image,fuzzy 4-gram 0.47 vs M3:dme_torque_inputs_scale; immediately precedes tcs_torque_request_build at 0x38E06
 00038E06,function,FUN_00038e06,tcs_torque_request_build,[C],818.3 listing (M-track / vehicle model),builds 0x400EBC/0x400EBE from TCS RAM including M-track-affected 0x400EC2
@@ -131,7 +131,7 @@ address,kind,old_name,new_name,confidence,source,basis
 0040034B,label,,wheel_side_flags,[C],818.3 listing (M-track / vehicle model),bit 4 = MDM local state from 0x12E44; bit 2 = OS-bar trip from 0xD98C; bits 0-1 also used there
 0040034C,label,,wheel_side_flags_twin,[C],818.3 listing (M-track / vehicle model),"twin status byte of 0x40034B, written only by yaw_os_bar_trip_filter_twin"
 0040042A,label,,yaw_os_bar,[C],818.3 listing (M-track / vehicle model),oversteer entry bar written by yaw_os_us_bars_update; first-trip mode-4 is 13.17 deg/s at 113.8 km/h
-0040042E,label,,yaw_us_bar,[C],818.3 listing (M-track / vehicle model),paired understeer/related bar written with yaw_os_bar
+0040042E,label,yaw_us_bar,yaw_os_hold_bar,[C],818.3 listing (DSC Active / AYC activation),OS hold / release bar = 698 (2.00 deg/s) x same taper as entry = 0.5 x yaw_os_bar; was yaw_us_bar
 00400434,label,,yaw_bar_tmp_a,[I],818.3 listing (M-track / vehicle model),temporary bar pair written by the MDM curve sites in yaw_os_us_bars_update
 00400436,label,,yaw_bar_tmp_b,[I],818.3 listing (M-track / vehicle model),temporary bar pair written with yaw_bar_tmp_a
 00400474,label,,yaw_os_corr_filtered,[C],818.3 listing (M-track / vehicle model),filtered OS-bar trip output of 0xD98C; consumed by actuator_cmd_from_yaw_corr and hyd_plant_main
@@ -283,7 +283,7 @@ address,kind,old_name,new_name,confidence,source,basis
 0001D994,function,FUN_0001d994,can_153_get_tq_flag_pos,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 0 bit 0 = can_153_torque_flags bit 0 (positive request)
 0001D9BA,function,FUN_0001d9ba,can_153_get_tq_flag_neg,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 0 bit 1 = can_153_torque_flags bit 1 (negative / drag request)
 0001D884,function,FUN_0001d884,can_153_get_b0_bit2,[C],818.3 listing (CAN layer / vehicle model),0x153 byte 0 bit 2 from can_mdm_status_gate bit 6 with tcs_status_eb6 bits 4..5 clear
-0001DA10,function,FUN_0001da10,can_153_get_b0_bit3,[C],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 3 from 0x400EB5 bit 2; Gauge.S ""DSC Active"" — not shown to be a general DSC-active flag"
+0001DA10,function,FUN_0001da10,can_153_get_dsc_active,[C],818.3 listing (DSC Active / AYC activation),0x153 byte 0 bit 3 getter from dsc_active_153_flags 0x400EB5 bit 2 (was can_153_get_b0_bit3)
 0001D498,function,FUN_0001d498,can_153_get_b0_bit4,[C],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 4 from 0x40092C bit 0 (Gauge.S ""Brake"", [I] as the brake-light switch)"
 0001D4DE,function,FUN_0001d4de,can_153_get_b0_bit5_lamp,[I],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 5, lamp-arbiter path (decompiler lost the id)"
 0001D4B0,function,FUN_0001d4b0,can_153_get_b0_bit6_lamp,[I],818.3 listing (CAN layer / vehicle model),"0x153 byte 0 bit 6, lamp-arbiter path"
@@ -327,3 +327,42 @@ address,kind,old_name,new_name,confidence,source,basis
 0040063B,label,LAB_0040063b,gpio_input_shadow_b1,[C],818.3 listing (M-track / vehicle model),second port-input byte; bit 6 is channel-1 (pressed when clear); bits 3 and 4 of 0x40063A/63B are validity
 00400729,label,LAB_00400729,can_615_timeout_flag,[C],818.3 listing (CAN layer / vehicle model),bit 7 set on 0x615 timeout or when feature 3 is off (packer); cleared by a valid 0x615 setter. No mode-logic reader
 0040102A,label,LAB_0040102a,coding_word_plus14,[C],818.3 listing (M-track / vehicle model),halfword at 0x401016+0x14: bit 6 = two- vs three-position DSC cycle (0x3B53A); bit 9 = feature 3 (0x3B57C)
+0000FD08,function,FUN_0000fd08,ayc_torque_path_state,[I],818.3 listing (DSC Active / AYC activation),"writes yaw_ctrl_active_flags 0x400932 bit1 (set/clear) using DME TPS/torque, rpm and 0x40035A integrator; second input to DSC Active"
+00011498,function,FUN_00011498,yaw_ctrl_inhibit_update,[I],818.3 listing (DSC Active / AYC activation),writes 0x400932 bit7 = 0x400DFA bit5 || _is_off() || 0x400DFA bit4 || 0x400E00 bit2; bit7 vetoes 0x400932 bit0
+00012438,function,FUN_00012438,yaw_ctrl_alt_brake_hold,[?],818.3 listing (DSC Active / AYC activation),alternate setter of 0x400932 bit0 with 0x400508 bit0 (speed window 40..200 km/h); clears only when 0x400350/0x400352 both zero; order vs ayc_yaw_ctrl_activation unproven
+0001222C,function,FUN_0001222c,yaw_ctrl_flag_clear_aux,[?],818.3 listing (DSC Active / AYC activation),conditionally clears 0x400932 bit0 (gated by 0x40045F bit2)
+00400EB5,label,,dsc_active_153_flags,[C],818.3 listing (DSC Active / AYC activation),bit2 -> 0x153 byte0 bit3 (Gauge.S DSC Active); only writer dsc_active_153_flag_update
+00400932,label,,yaw_ctrl_active_flags,[C],818.3 listing (DSC Active / AYC activation),bit0 = (ayc_ctrl_state & 3)!=0 and !bit7; bit1 from ayc_torque_path_state; bit7 inhibit; bits0..1 feed DSC Active
+0040045D,label,,ayc_ctrl_state,[C],818.3 listing (DSC Active / AYC activation),"bit0 OS controller active, bit1 US controller active, bit3 moment request flag (ayc_yaw_ctrl_activation)"
+00400458,label,,ayc_os_onoff_counter,[C],818.3 listing (DSC Active / AYC activation),"signed up/down counter: +1/tick above entry bar until entry N, reset 0 on activation, -1/tick below hold bar, release at < -25"
+00400459,label,,ayc_os_aux_counter,[I],818.3 listing (DSC Active / AYC activation),secondary counter; inactive reset when os counter <= it
+0040045A,label,,ayc_us_onoff_counter,[C],818.3 listing (DSC Active / AYC activation),"US controller up/down counter: entry 15/5 ticks (0x3D14C/0x3D14A), release <= -1 (0x3D148)"
+0040034A,label,,ayc_phase_field,[I],818.3 listing (DSC Active / AYC activation),"bits1..2: 1=counting up/entry, 2=ramp-out (below hold), 3=released; also selects set A/B bars"
+00400936,label,,yaw_os_err_ctrl,[I],818.3 listing (DSC Active / AYC activation),OS yaw error magnitude compared with 0x40042A (entry) and 0x40042E (hold) in ayc_yaw_ctrl_activation
+0040042C,label,,yaw_us_entry_bar,[I],818.3 listing (DSC Active / AYC activation),US entry bar (0x3D150 1047 = 3.00 deg/s)
+00400430,label,,yaw_us_hold_bar,[I],818.3 listing (DSC Active / AYC activation),US hold bar (0x3D154 524 = 1.50 deg/s)
+00400954,label,,yaw_err_rate_term,[?],818.3 listing (DSC Active / AYC activation),|x| < 4571 (0x3D178) selects long entry debounce 35/17 vs short 5
+00400938,label,,yaw_ctrl_steer_term,[?],818.3 listing (DSC Active / AYC activation),|x| >= 873 with same sign as 0x400934 selects 17-tick entry instead of 35
+00400344,label,,ayc_entry_slow_flag,[?],818.3 listing (DSC Active / AYC activation),> 0 forces OS entry debounce to 114 ticks
+00400480,label,,ayc_vref_gate,[I],818.3 listing (DSC Active / AYC activation),"speed-like word; < 1081 resets AYC, < 1441 blocks fresh OS entry, > 3000 for US path"
+00400EBA,label,,tcs_flag_ref_x,[?],818.3 listing (DSC Active / AYC activation),written by dme_torque_inputs_scale; X in 7/8 and 3/4 thresholds of dsc_active_153_flag_update
+00400EC4,label,,tcs_slip_term_ref,[?],818.3 listing (DSC Active / AYC activation),subtracted from tcs_slip_term_max in dsc_active_153_flag_update
+00400EE4,label,,tcs_phase_ticks,[?],818.3 listing (DSC Active / AYC activation),byte counter; < 13 allows TCS-branch set at 3/4 threshold
+00400508,label,,alt_brake_hold_flags,[?],818.3 listing (DSC Active / AYC activation),bit0 set with 0x400932 bit0 by yaw_ctrl_alt_brake_hold
+0003D15C,label,,cal_ayc_os_release_ticks,[C],818.3 listing (DSC Active / AYC activation),25: OS release when ayc_os_onoff_counter < -25 -> 26 ticks = 0.26 s at 10 ms
+0003D160,label,,cal_ayc_os_entry_ticks_short,[C],818.3 listing (DSC Active / AYC activation),"5 ticks (when |0x400954|>=4571, already active, or 0x400F60 bit0)"
+0003D16A,label,,cal_ayc_os_entry_ticks_long,[C],818.3 listing (DSC Active / AYC activation),35 ticks normal fresh entry
+0003D16C,label,,cal_ayc_os_entry_ticks_steer,[C],818.3 listing (DSC Active / AYC activation),17 ticks when 0x400938 large with same sign as 0x400934
+0003D178,label,,cal_ayc_os_entry_rate_lim,[I],818.3 listing (DSC Active / AYC activation),4571: |0x400954| threshold for short entry
+0003D14C,label,,cal_ayc_us_entry_ticks_a,[C],818.3 listing (DSC Active / AYC activation),15 ticks US entry (0x40034D bit2 set)
+0003D14A,label,,cal_ayc_us_entry_ticks_b,[C],818.3 listing (DSC Active / AYC activation),5 ticks US entry
+0003D148,label,,cal_ayc_us_release_ticks,[C],818.3 listing (DSC Active / AYC activation),1: US release at counter <= -1
+0003D30A,label,,cal_ayc_us_min_vref,[I],818.3 listing (DSC Active / AYC activation),3000 vs 0x400480 for US entry
+0003D170,label,,cal_yaw_os_bar_a,[C],818.3 listing (DSC Active / AYC activation),1396 = 4.00 deg/s set A OS entry
+0003D172,label,,cal_yaw_os_bar_b,[C],818.3 listing (DSC Active / AYC activation),2792 = 8.00 deg/s set B OS entry
+0003D174,label,,cal_yaw_os_hold_a,[C],818.3 listing (DSC Active / AYC activation),698 = 2.00 deg/s set A OS hold
+0003D176,label,,cal_yaw_os_hold_b,[C],818.3 listing (DSC Active / AYC activation),2094 = 6.00 deg/s set B OS hold
+0003D150,label,,cal_yaw_us_bar,[I],818.3 listing (DSC Active / AYC activation),1047 = 3.00 deg/s US entry
+0003D154,label,,cal_yaw_us_hold,[I],818.3 listing (DSC Active / AYC activation),524 = 1.50 deg/s US hold
+0000F79C,label,,ayc_os_release_check,[C],818.3 listing (DSC Active / AYC activation),site: counter < -cal_ayc_os_release_ticks -> clear ayc_ctrl_state bit0
+000383F4,label,,dsc_active_tcs_selflatch,[C],818.3 listing (DSC Active / AYC activation),site: eb6 bit2 or previous 0x400EB5 bit2 keeps DSC Active set while tcs_status_eb6 bit0
