@@ -74,11 +74,11 @@ The 818.3 dump file is 256 KB, with used data through `0x3FCEB` and `0xFF` paddi
 
 No software write to the ECC window appears in the 818.3 image. ECC is therefore **[I]** to be generated automatically on a successful flash program, but whether an external programmer must also write `0x00100000+` is still **[open]**.
 
-Flash **sector size** is still **[open]**. The ZCP dump’s erased tail `0x40320`–`0x40FFF` after a used region that ends at `0x4031F` is consistent with a **4 KB** erase block starting at `0x40000` **[I]**. Under a 4 KB map, dataset-10 A/B at `0x3E8A4`–`0x3E8C1` and the 818.3 check word at `0x3FCE4` would fall in **different** sectors. That is a reading of the dumps, not a measured erase.
+Flash **erase granularity** is a **1 KB page** on this SGFM-class part (Freescale SGFM page erase = 1 KB; two interleaved 512-byte pages). An earlier reading of the ZCP erased tail `0x40320`–`0x40FFF` as a 4 KB erase block is superseded by the SGFM identification in `e46_m3_mk60_flash_programmability.md`. Under 1 KB pages, dataset-10 A/B at `0x3E8A4`–`0x3E8C1` fall in page **`0x3E800`** and the 818.3 check word at `0x3FCE4` falls in page **`0x3FC00`** — **different** pages, each mostly live data that would have to be buffered and reprogrammed word-by-word. [C] for the SGFM page size; **[I]** for the per-page content. See `e46_m3_mk60_flash_programmability.md`.
 
 ## Open questions
 
-- [ ] Flash sector (erase block) size, confirmed against the part rather than inferred from the ZCP padding.
+- [ ] Flash erase granularity confirmed against the part (SGFM page erase is 1 KB; see `e46_m3_mk60_flash_programmability.md`).
 - [ ] Whether a flash program must also write the ECC window at `0x00100000+`, or whether ECC is automatic.
 - [ ] A live read past `0x40000` on an 818.3 unit, to confirm the 384 KB firmware window on that hardware.
 - [ ] How much of the level-3 / level-4 RAM windows is safe, and whether a watchdog is kicked if interrupts stay masked during a long `jsr`.
