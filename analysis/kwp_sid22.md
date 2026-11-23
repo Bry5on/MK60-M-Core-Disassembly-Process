@@ -8,7 +8,7 @@ KWP service 0x22, ReadDataByCommonIdentifier, on the MK60E5 (handler `kwp_22_rd_
 
 The EEPROM it reaches is the raw coding block (DID 0x3000 and its test stamp 0x3FFF), slices of the identification block (0x2500 to 0x2506), the three-byte Prüfstempel (0x1000) and one 11-byte record with no other consumer (0x1603). It does not reach the sensor zero-offset record, the valve calibrations or the tyre-pressure learning data; those are written by routines and loaded at boot, and a tester gets at them only through ReadMemoryByAddress (0x23) and WriteMemoryByAddress (0x3D). The closest thing to a steering parameter here is DID 0x3001, one coding byte that is also pushed to the steering-angle sensor.
 
-The write side, 0x2E, mirrors five of the DIDs. Tracing the handler also exposed two recovery gaps in our Ghidra pipeline, which are being fixed separately.
+The write side, 0x2E, mirrors five of the DIDs. Tracing the handler also exposed two recovery gaps in our Ghidra pipeline; both are now closed in the shipped project (see "Open questions and recovery gaps"), and a third, unrelated pool-entry mis-start was found and fixed with a new script.
 
 ## How the handler works
 
@@ -31,7 +31,7 @@ EEPROM positions come from cmg5461's `EEPROM_MAP_7846816A.md`: a descriptor's 16
 | 0x1000 | block 11 (id 0xBB) +0x0E, 3 B | 6 | 0x1B7..0x1B9 | yes, 3 B | Prüfstempel, the test stamp | medium |
 | 0x1001 | live, only when the coding bit `coding_field_read` is set | 27 | - | yes, with range checks (0..100, 0..31, value×100) | DDS/RPA tyre parameters for two axles, read from the wheel records at 0x40BF00 and 0x40BFC0 through the getters at 0x95D2C, 0x95C04, 0x95DB2 and 0x95CF6; 31000 and 32000 are invalid markers | medium |
 | 0x1600 | constant | 4 | - | no | 00 00 00 03 | high |
-| 0x1601 | live via the function at 0xC6EB8, selectors 1, 0 and 4 | 16 | - | no | steering-angle-sensor module data (the F-CAN 0x0C9 block); the callee is not yet recovered in the project | low |
+| 0x1601 | live via the function at 0xC6EB8, selectors 1, 0 and 4 | 16 | - | no | steering-angle-sensor module data (the F-CAN 0x0C9 block); the callee `FUN_000c6eb8` is recovered in the shipped project | low |
 | 0x1602 | live via 0xC71A6: a 12-byte checksummed string at 0x400967, then a 10-byte string received from the instrument cluster at 0x402E55 | 33 | - | no | identification strings | low |
 | 0x1603 | block 47 (0x2F3) +0, 11 B into 0x409446 | 22 | 0x26F..0x279 | no | unknown; no other consumer in the image | medium |
 | 0x2500 | block 24 (0x183) +0x26, 54 B | 57 | 0x348..0x37D | no | identification data, content unknown | medium |
@@ -93,10 +93,20 @@ Three more services reach the EEPROM from the tester. Each has a tiny set of sub
 
 - [ ] **The block 24 slices.** DIDs 0x2500, 0x2501, 0x2502 and 0x2506 return 80 bytes of the identification block whose meaning is unknown; cmg5461's map marks them "?" too. A real tester log against a known car would settle them.
 - [ ] **DID 0x1603.** Eleven bytes of block 47 with no other consumer in the image.
-- [ ] **DIDs 0x1601 and 0x3001.** Both go through the function at 0xC6EB8, which is raw bytes in the project (recovery gap, below). Its selectors read the steering-angle-sensor module's state; which fields come back is unknown until it is recovered.
+- [ ] **DIDs 0x1601 and 0x3001.** Both go through the function at 0xC6EB8 (now recovered as `FUN_000c6eb8`, see gap 1 below). Its selectors read the steering-angle-sensor module's state; which fields come back is still unknown.
 - [ ] **DID 0x1602.** The 12-byte string at 0x400967 is checksummed in RAM, the 10-byte string comes from the instrument cluster; whether either is the VIN is unverified.
-- [ ] **Recovery gap 1.** The function at 0xC6EB8 (through about 0xC6FA0) is a prologue-less leaf called through a pool slot that the recovery never typed, so it was never disassembled and no verify gate sees it.
-- [ ] **Recovery gap 2.** Eight prologue-less helpers at 0xD5474..0xD6734, targets of 36 `jsri` calls from drivers and interrupt handlers, sit above the auto-pinned data boundary (0xD5430) and were cleared and relabelled as table bases by `DataSectionClean`. Both gaps are being fixed in the pipeline; until then, any decompile that reaches those addresses shows `UNK_` or table labels.
+- [x] **Recovery gap 1 — closed.** In the shipped `E9x_M3_7846816A` project `0xC6EB8` is a function (`FUN_000c6eb8`, 5 references), so the DID 0x1601/0x3001 callee is recovered; this bullet was stale. Verified read-only with `tools/ghidra/scripts/GapCheck.java`.
+- [x] **Recovery gap 2 — closed.** `0xD5474..0xD6733` are nine functions in the shipped project — `FUN_000d5474`, `wss_capture_read` 0xD550C, `wss_capture_config` 0xD569C, `FUN_000d6630`, `timer_prescale_cfg` 0xD6640, `FUN_000d66b8`, `FUN_000d66d0`, `FUN_000d66e8`, `FUN_000d6704` (ending at 0xD6734) — not table bases. Also stale.
+- [ ] **Recovery gap 3 — a pool-entry mis-start (new).** The routine that `kwp_09_proprietary` reaches via `jsri` has its function entry placed **16 bytes too early, inside the preceding function's literal pool**, in two E5 projects:
+
+  | project | wrong entry | real entry (`subi r0,8`) | caller `jsri` | pool reader |
+  |---|---|---|---|---|
+  | E9x M3 7846816A | `FUN_000af6fc` | **0xAF70C** | 0xB16D8 | `FUN_000af686` reads 0xAF6FC..0xAF708 |
+  | E82 1M 7846411A | `FUN_000af4e4` | **0xAF4F4** | 0xB14C0 | `FUN_000af46e` reads 0xAF4E4..0xAF4F0 |
+
+  The four pool words (three RAM pointers + the constant `0x0000FF00`) then decode as `ldq`/`bkpt`, and the low halfword `0xFF00` decodes as a bogus `bsr`, corrupting the routine's decompile. Fixed read-only on local copies with `tools/ghidra/scripts/FixPoolEntry.java <wrong> <real> commit`: it removes the wrong function, retypes the pool words as `addr`/`ddw`, and creates the function at the real entry. The clean decompile shows a routine-ID gate for KWP `$09`: it reads `diag_routine_id` (a RAM byte via pool 0xAF778), passes 1 for ID 0x7F, 2 for 0x8F, else 0, to the function from pool 0xAF77C, and returns `!= 0`. [C for the bytes, I for the reading]
+
+  A verify gate **"function entry that only pool-read references point at"** would catch this class automatically; `GapCheck.java` already reports call targets with no function and resolves `jsri` pool slots, which is how this was found.
 
 ## Method and provenance
 
