@@ -53,6 +53,10 @@ tools/
   parse_0pa.py            BMW .0pa  ->  CPU-address Intel HEX + region .bin files
   find_boundary.py        prologue-scan: arch check + programmatic code/data boundary
   port_symbols.py         cross-image symbol porting by function signature
+  decode_coding.py        decode + verify an E46 95040 coding block via a local NCS-Dummy export
+  analyze_dump.py         flash-writability triage for an image (0x200, KWP services, loader)
+  mmioscan.py             list lrw MMIO-band literals + code sites (M·CORE)
+  callers.py              find bsr/jsri/lrw references to given addresses (M·CORE)
   patches/                mcore.patch, mcore.cspec, make_mcore_patch.py
   ghidra-mcore/           vendored CUB3D M·CORE Ghidra module (Apache-2.0)
   ghidra/
