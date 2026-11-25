@@ -1,6 +1,6 @@
 # ZCP MK60 — mfg protocol write + code-execution path
 
-Hand-written trace (2026-11-17), companion to `zcp_mk60_image.md`. Not pipeline output. Covers the
+Hand-written trace (2026-11-17; updated 2026-11-25), companion to `zcp_mk60_image.md`. Not pipeline output. Covers the
 manufacturing (mfg_test_cycle) protocol's **memory-write** and **code-execution** primitives on the E46 M3
 ZCP image, and what the `0xA6 'Z'` / state-7 hand-off actually does. All addresses are ZCP ROM/flash offsets
 (big-endian M·CORE) unless marked RAM. Entry to the mfg session (the K-line knock → framed mode, access
@@ -9,7 +9,9 @@ level 1) is covered in `mfg_test_cycle.md` and the bench work; this doc starts f
 Provenance: addresses marked **[dis]** were read directly from the ZCP Ghidra project
 (`projects/817.3_e46_m3_zcp_mk60`) via `tools/ghidra/dump.sh` in this session. Addresses marked **[doc]** are
 from `zcp_mk60_image.md` / `nonm_mk60_image.md` (the non-M command-class table "applies here unchanged", per
-`zcp_mk60_image.md`). Nothing here is bench-confirmed on hardware yet — we have only ever *read* with `0xA4`.
+`zcp_mk60_image.md`). The **A5 RAM-write + A6 execute path is now bench-proven** on an 818.3-class unit
+(Heinz, NAM3 forum post #147, 20 Nov 2026; see §4). Live E46 818.3 framing and access-level notes are also
+in §4. This path writes and executes **RAM only**; it does not program flash.
 
 ---
 
@@ -25,9 +27,10 @@ command-class table (non-M, applies to ZCP) [doc]:
 | `0xA5 'T'` | write hex pairs from the request to a given address |
 | `0xA5 'X'` | EEPROM write of one byte (NVM job 0xF0 via 0x15FC2 mode 2) |
 
-`mfg_memcpy` = **0x1BAF0** [doc] (non-M 0x1B8D8, M3 0x7738C). Reads (`0xA4 'U'` etc.) and writes (`0xA5`) are
-both available at **access level 1** — the level the knock grants. So the unit will take arbitrary-address
-writes over the K-line at the level we already reach. **Untested on our unit.**
+`mfg_memcpy` = **0x1BAF0** [doc] (non-M 0x1B8D8, M3 0x7738C). The command-class table lists reads (`0xA4`) and
+writes (`0xA5`) at **access level 1** [doc]. Live E46 818.3 probing required access level **≥ 2** for A5
+SRAM writes (level 2 is free on that unit: `0xA3` with param 32 raised the level and replied `f`/`2`). A5
+RAM writes are proven — see §4.
 
 Note on flash: `0xA5` writes are plain stores. M·CORE flash needs the flash-controller program/erase
 sequence, and the app image has **no flash-writing code** (`zcp_mk60_image.md`). So `0xA5` into a flash
@@ -94,8 +97,9 @@ long-frame `K`/`L`/`Q` commands that build that buffer). It is reached by **`0xA
 
 Gating before the `jsr` (not fully pinned) [dis]: a flag byte **0x4006ED** (bit 7) and a control byte at
 **descriptor-3**, checked against r13 (0x80/0x81/0x82). The 0x82 path branches to 0x1BE1E (not the jsr); the
-jsr is in the bit7-clear / 0x80-0x81 path. **Open:** the exact control-byte value and whether `O` reaches the
-jsr at level 1.
+jsr is in the bit7-clear / 0x80-0x81 path. The `jsr` itself needs access level **≥ 3** (818.3 image; see
+`e46_m3_mk60_kline_access_and_flash.md`). That matches the bench sequence in §4, which raises to level 3
+with `0xA3` before execute.
 
 ### The 0xA6 long-frame commands (descriptor builders) [doc]
 - `M` — set the active request descriptor's header byte (0x1BBB2 non-M / 0x1BDCA-family ZCP).
@@ -106,30 +110,61 @@ jsr at level 1.
 
 ---
 
-## 4. Working hypothesis: this is the factory "upload a routine and run it" path
+## 4. Proven write + execute path
 
-A "load a frame into a RAM buffer, then `jsr` into it" mechanism is almost certainly the factory's intended
+A "load a frame into a RAM buffer, then `jsr` into it" mechanism is the factory's intended
 **download-and-execute** path. That resolves the puzzle of "no resident flash-writing code in the image": the
-factory does not keep flash code resident — it **uploads a transient flash loader into RAM over the K-line and
-executes it via this path**, and that loader does the programming. If so, **a hidden bootloader is not
-required** to reflash; we can do what the factory does. (The parent docs' "reprogramming must come from
-outside" is about the app image having no resident loader — which is still true; this is the *vector* that
-lets outside code in.)
+factory does not keep flash code resident — it **uploads a transient routine into RAM over the K-line and
+executes it via this path**. A hidden bootloader is not required to get code running; this is the *vector*
+that lets outside code in. (The parent docs' "reprogramming must come from outside" is about the app image
+having no resident loader — which is still true.)
 
-### Emerging recipe (hypothesis, NOT bench-proven)
-1. Enter the mfg session (K-line knock → framed mode, level 1); confirm the `0xA6` long-frame commands work
-   (mode bit 7 clear).
-2. Fill the descriptor buffer **0x401060** with `[halfword offset][…our M·CORE code…]` via `0xA5` writes (or
-   `K`/`L`/`Q`).
-3. Satisfy the gating (control byte at descriptor-3, flag 0x4006ED) so `mfg_rx_service` takes the jsr branch.
-4. Send `0xA6 'O'` → `mfg_rx_service` → `jsr` into our bytes.
+The RAM write and the `jsr` have been demonstrated on hardware. The flash-controller sequence that would
+program flash has **not**. This path writes and executes **SRAM only**.
 
-**Milestones (each earns confidence before the next; the first three write nothing to flash):**
+### Bench-proven sequence (Heinz, NAM3 forum post #147, 20 Nov 2026)
 
-1. **Prove the RAM write.** `0xA5`-write a scratch RAM word and read it back with `0xA4` — confirms arbitrary
-   RAM write at level 1 on the live unit.
+On an 818.3-class unit, Heinz publicly demonstrated arbitrary RAM code execution:
+
+1. `0xA3` — raise access level to 3.
+2. `0xA5` — write a RAM target at `0x00401400`.
+3. `0xA6` with sub-commands **K / L / K / O** — claim descriptor, upload stub, arm, trigger the jump.
+4. Result: marker `0x5A` appeared at `0x00401400`; the stub ran. SRAM only; nothing hits flash.
+
+Source: [NA M3 Forums — Flashing the MK60 with ZCP software](https://nam3forum.com/forums/forum/special-interests/coding-tuning/172815-flashing-the-mk60-with-zcp-software), post #147.
+
+`0x401400` is a valid scratch / upload address. It is **not** the `'O'` descriptor base. Do not conflate
+them:
+
+- ZCP usual `'O'` descriptor: **`0x401060`** (or `0x40116C`; see §3). Jump = descriptor + halfword[0] + 6.
+- 818.3 usual level-3 `'O'` descriptor: **`0x401142`**. Same jump rule. See
+  `e46_m3_mk60_kline_access_and_flash.md`.
+
+### Access levels (image + live E46 818.3)
+
+- `0xA5` SRAM writes need access level **≥ 2**. On E46, level 2 is free: `0xA3` with param 32 raised the
+  level and replied `f`/`2`.
+- `0xA6` `jsr` into RAM needs access level **≥ 3** (already documented from the 818.3 image; matches Heinz
+  raising to level 3 with `0xA3` before exec).
+
+### Framing and session (live 818.3)
+
+Working `0xA4` reads used **8 ASCII hex digits** for the address (e.g. `A4 55` + `00400000`…), not raw
+binary address bytes. `0xA5` writes should use the same ASCII-hex address encoding. The tool adds length
+and checksum; paste class + sub + params only.
+
+Same-session constraint: over K+DCAN with MK60 Tool, every Send re-issues the knock, which reboots the
+module and wipes SRAM and the access level, so `A3` → `A5` → `A4`/`A6` cannot complete in one session.
+**Gauge.S** does the knock dongle-side and keeps one session alive across those frames — required for the
+write+exec sequence.
+
+### Milestones
+
+1. **Prove the RAM write.** `0xA5`-write a scratch RAM word and read it back with `0xA4`. **Demonstrated by
+   Heinz (#147)** on an 818.3-class unit (`0xA5` to `0x00401400`).
 2. **Prove code execution.** Stage a routine that writes a marker to a scratch RAM word, trigger it
-   (`0xA6 'O'`), and `0xA4`-read the word — proves arbitrary execution with nothing written to flash.
+   (`0xA6` **K / L / K / O**), and read the word. **Demonstrated by Heinz (#147)**: marker `0x5A` at
+   `0x00401400`. Nothing written to flash.
 3. **Read-only CAN firmware dump (self-validating).** Stage a memory-read loop that walks flash, packs it into
    8-byte CAN payloads, and pushes them through the controller's transmit mailbox (registers `0xFFFC80`;
    model on the mailbox setup `0x157DC` and transmit `0x157B0`/`0x157BC` in `zcp_can_frames.md`); the Gauge.S
@@ -138,21 +173,23 @@ lets outside code in.)
    existing K-line dump** — so it exercises the full write+exec chain read-only, with a perfect ground-truth
    comparison and nothing written to flash. The staged routine drives the CAN controller directly (init a
    mailbox, push, wait for complete), since the mfg session runs independently of the application's CAN task.
+   **Still open.**
 4. **Flash-program routine.** Only after the above: an M·CORE flash-program routine (flash-controller
    registers were located during image recovery; see `nonm_mk60_image.md` "flash-register references").
+   **Still open** — the A5/A6 path does not program flash.
 
 ---
 
 ## 5. Open items / caveats / next steps
 
-- **Gating:** one more Ghidra pass on the `0xA6 'O'` handler and the descriptor layout to pin the exact
-  control byte / 0x4006ED value, and confirm `O` reaches the `jsr` at level 1.
-- **Writes untested:** `0xA5` has never been exercised on our unit — add a *guarded* `mfg write` to the bench
-  tool and prove a RAM write + `0xA4` read-back before building the exec chain on top.
+- **Gating:** the `jsr` is reached at access level 3 via `0xA6` **K / L / K / O** (Heinz #147). A longer
+  walk of the exact control-byte / `0x4006ED` tests is still useful; see also
+  `e46_m3_mk60_kline_access_and_flash.md`.
+- **Watchdog:** whether a watchdog would reset a long `jsr` (interrupts masked) remains **open**.
 - **Brick risk:** everything here writes a live module. We hold the full dump to restore, and BDM/chip-off is
-  the backstop.
-- **Flash routine:** needs the M·CORE flash-controller program/erase sequence + register addresses (from the
-  recovery session's flash-register references).
+  the backstop. The proven path touches SRAM only; flash is unchanged by A5/A6 themselves.
+- **Flash routine:** still needs the M·CORE flash-controller program/erase sequence + register addresses
+  (from the recovery session's flash-register references). That step is **not** demonstrated.
 
 ## Address quick-reference (ZCP)
 
@@ -171,5 +208,8 @@ lets outside code in.)
 | `mfg_cmd_dispatch` / command table | 0x1C028 / 0x3E130 | [dis]/[doc] |
 | `mfg_memcpy` | 0x1BAF0 | [doc] |
 | memory handler (0xA4 read / 0xA5 write) | 0x1B622 | [doc] |
+| 818.3 usual level-3 `'O'` descriptor (not ZCP) | RAM 0x401142 | see 818.3 k-line note |
+| Heinz #147 scratch / upload target | RAM 0x401400 | NAM3 #147 |
 
-Companion: `zcp_mk60_image.md`, `nonm_mk60_image.md`, `mfg_test_cycle.md` (E9x M3), `program_request_record.md`.
+Companion: `zcp_mk60_image.md`, `nonm_mk60_image.md`, `mfg_test_cycle.md` (E9x M3), `program_request_record.md`,
+`e46_m3_mk60_kline_access_and_flash.md`.

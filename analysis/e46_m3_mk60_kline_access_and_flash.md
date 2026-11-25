@@ -1,10 +1,10 @@
 # E46 MK60 K-line access and flash
 
-Hand-written note (2026-11-20). Companion to `e46_m3_non_zcp_mk60_image.md`, `nonm_mk60_image.md`, `zcp_mfg_exec_path.md`, `e46_m3_mk60_image_check_word.md` and `e46_m3_mk60_can_map.md` (no `0x7xx` diagnostic identifiers on either CAN bus; workshop access remains K-line). Addresses are from the 818.3 non-ZCP image unless a twin is named.
+Hand-written note (2026-11-20; updated 2026-11-25). Companion to `e46_m3_non_zcp_mk60_image.md`, `nonm_mk60_image.md`, `zcp_mfg_exec_path.md`, `e46_m3_mk60_image_check_word.md` and `e46_m3_mk60_can_map.md` (no `0x7xx` diagnostic identifiers on either CAN bus; workshop access remains K-line). Addresses are from the 818.3 non-ZCP image unless a twin is named.
 
-This is a description of what the application image contains — and what it does not. It is not a procedure for programming a module.
+This is a description of what the application image contains — and what it does not. It is not a procedure for programming a module. The manufacturer K-line path can write and execute **RAM**; it does not, by itself, program flash.
 
-Confidence: **[C]** read from the 818.3 listing or from the cited companion docs, **[I]** inferred, **[open]** not established.
+Confidence: **[C]** read from the 818.3 listing or from the cited companion docs, **[I]** inferred, **[open]** not established. Bench results below are attributed to their source (Heinz, NAM3 forum post #147, or live 818.3 framing/session probes).
 
 ## No bootloader, no flash-program code
 
@@ -29,7 +29,11 @@ The protocol is documented address-for-address for 818.3 in `e46_m3_non_zcp_mk60
 
 `0xA4` `'U'` is how a complete flash dump of this image is obtained: the command will read the dataset-10 cells and the check word just as it will read any other mapped address. [C]
 
-`0xA5` is a CPU store, not a flash programmer. A store targeting a flash address does not erase or program that cell. The same session can write RAM and EEPROM; it cannot, by itself, change program flash. [C] for the listing; `0xA5` on hardware is **untested** in these notes.
+`0xA5` is a CPU store, not a flash programmer. A store targeting a flash address does not erase or program that cell. The same session can write RAM and EEPROM; it cannot, by itself, change program flash. [C] for the listing.
+
+A5 SRAM writes need access level **≥ 2**. On E46, level 2 is free: live 818.3 probing raised the level with `0xA3` and param 32, and the module replied `f`/`2`. Heinz then used `0xA5` to write a RAM target at `0x00401400` on an 818.3-class unit (NAM3 forum post #147, 20 Nov 2026). That is a RAM store only.
+
+Working `0xA4` reads on live 818.3 used **8 ASCII hex digits** for the address (e.g. `A4 55` + `00400000`…), not raw binary address bytes. `0xA5` writes should use the same ASCII-hex address encoding. The tool adds length and checksum; paste class + sub + params only.
 
 ## RAM `jsr` gates
 
@@ -45,9 +49,21 @@ Level 0–2 returns **0** and never reaches the `jsr`. [C]
 
 `0xA6` `'O'` (inside `0x1B496`) repeats the level and bit-7 tests, then calls `mfg_rx_service(0x80)`. A zero return is treated as failure. The usual `'O'` descriptor, at level 3 with bit 7 clear, is **`0x401142`** — not the raw `0x401030` base (that base is the level-4 starting point, adjusted to `0x401036`). On a successful return, `'O'` caps the reply length at `0x4005BF` to **0x27**. [C]
 
-Failed gates return 0 and do not `jsr`. Nothing in this path programs flash. The 10 ms factory cycle also calls `mfg_rx_service` every tick, but with `0x82`, which is the decode path and not the `jsr`. [C]
+The jump target is **descriptor + halfword[0] + 6**. Failed gates return 0 and do not `jsr`. Nothing in this path programs flash. The 10 ms factory cycle also calls `mfg_rx_service` every tick, but with `0x82`, which is the decode path and not the `jsr`. [C]
 
-The gates and the RAM windows they can see have not been exercised on hardware in this work. How much of the level-3 window (`0x401142`–`0x401700`) or the level-4 window (to `0x401800`) is actually safe, and whether a watchdog would reset a long routine, remain **[open]**. A longer walk of the control-byte tests is in `zcp_mfg_exec_path.md`; the 818.3 tests are the same.
+### Proven RAM execute (Heinz, NAM3 #147)
+
+Those gates have been exercised on an 818.3-class unit. Heinz (NAM3 forum post #147, 20 Nov 2026) raised access to level 3 with `0xA3`, wrote RAM at `0x00401400` with `0xA5`, then used `0xA6` sub-commands **K / L / K / O** (claim descriptor, upload stub, arm, trigger the jump). Marker `0x5A` appeared at `0x00401400`; the stub ran. SRAM only; nothing hits flash.
+
+Source: [NA M3 Forums — Flashing the MK60 with ZCP software](https://nam3forum.com/forums/forum/special-interests/coding-tuning/172815-flashing-the-mk60-with-zcp-software), post #147.
+
+`0x401400` is a valid scratch / upload address. It is **not** the 818.3 `'O'` descriptor base at **`0x401142`**. The ZCP usual descriptor is `0x401060` (see `zcp_mfg_exec_path.md`). Do not conflate these.
+
+How much of the level-3 window (`0x401142`–`0x401700`) or the level-4 window (to `0x401800`) is actually safe, and whether a watchdog would reset a long routine, remain **[open]**. A longer walk of the control-byte tests is in `zcp_mfg_exec_path.md`; the 818.3 tests are the same.
+
+### Same-session tooling
+
+Over K+DCAN with MK60 Tool, every Send re-issues the knock, which reboots the module and wipes SRAM and the access level, so `A3` → `A5` → `A4`/`A6` cannot complete in one session. **Gauge.S** does the knock dongle-side and keeps one session alive across those frames — required for the write+exec sequence.
 
 ## Calibration is read from flash
 
@@ -82,8 +98,10 @@ Flash **erase granularity** is a **1 KB page** on this SGFM-class part (Freescal
 - [ ] Whether a flash program must also write the ECC window at `0x00100000+`, or whether ECC is automatic.
 - [ ] A live read past `0x40000` on an 818.3 unit, to confirm the 384 KB firmware window on that hardware.
 - [ ] How much of the level-3 / level-4 RAM windows is safe, and whether a watchdog is kicked if interrupts stay masked during a long `jsr`.
-- [ ] The factory programming path for this module, if any exists outside the application image. This image does not contain one.
+- [ ] The flash-controller program/erase sequence. The manufacturer K-line path can write and execute RAM (`0xA5`, then `0xA6` **K / L / K / O**); it does not program flash. This image still has no resident flash programmer.
 
 ## Method
 
 The “no bootloader / no flash-program code” finding and the timed-KL15 protocol are those already recorded in `e46_m3_non_zcp_mk60_image.md` and `nonm_mk60_image.md`, re-checked against the 818.3 listing. The `jsr` gates were read from 818.3 `mfg_rx_service` and the class-`0xA6` handler, and match the ZCP twin in `zcp_mfg_exec_path.md`. The memory map is credited to the nam3forum thread cited above; the MISR registers inside that map were identified separately in `e46_m3_mk60_image_check_word.md`.
+
+The proven RAM write + execute sequence is Heinz’s public result in that same thread, post #147 (20 Nov 2026): `0xA3` to level 3, `0xA5` to `0x00401400`, `0xA6` **K / L / K / O**, marker `0x5A` at `0x00401400`. Access-level ≥ 2 for A5, ASCII-hex address framing, and the Gauge.S same-session constraint are from live E46 818.3 probing.
