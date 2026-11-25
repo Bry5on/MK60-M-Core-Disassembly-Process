@@ -78,9 +78,10 @@ The flash-controller register base is the M·CORE family constant **`0x00D00000`
 MMC2107, SGFM (Second Generation FLASH for M·CORE) on the MMC2114 / MMC2113 / MMC2112. The
 SC5500xx firmware names SGFM.
 
-Source: *MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002; also covering MMC2113
-and MMC2112), system memory map and Section 10, Table 10-2. That is the Motorola/Freescale M·CORE
-SGFM family reference (sometimes listed as the MMC2114 Advance Information Reference Manual).
+Source: [*MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002)](../docs/references/MMC2114D_Rev1_Apr2002.pdf)
+(also covering MMC2113 and MMC2112), system memory map and Section 10, Table 10-2. That is the
+Motorola/Freescale M·CORE SGFM family reference (sometimes listed as the MMC2114 Advance
+Information Reference Manual). The manual is in this repo at `docs/references/MMC2114D_Rev1_Apr2002.pdf`.
 
 Bench probes of `0xD00000` from a user-mode RAM stub faulted not because the address was wrong, but
 because **every SGFM register is supervisor-only**. The manual states that user-mode accesses to
@@ -103,8 +104,8 @@ manual (clock divider, bank select), the three-step write sequence is:
 2. Write the command to SGFMCMD.
 3. Write 1 to CBEIF to launch; poll CCIF for completion.
 
-No intermediate writes to the SGFM module are permitted between those three steps (*MMC2114*
-§10.8.3.2).
+No intermediate writes to the SGFM module are permitted between those three steps
+([*MMC2114*](../docs/references/MMC2114D_Rev1_Apr2002.pdf) §10.8.3.2).
 
 ### Privilege door and delivery
 
@@ -154,7 +155,7 @@ Flash **erase granularity** is a **1 KB page** on this SGFM-class part (Freescal
 - [ ] Whether a flash program must also write the ECC window at `0x00100000+`, or whether ECC is automatic.
 - [ ] A live read past `0x40000` on an 818.3 unit, to confirm the 384 KB firmware window on that hardware.
 - [ ] How much of the level-3 / level-4 RAM windows is safe, and whether a watchdog is kicked if interrupts stay masked during a long `jsr`.
-- [ ] SS4 elevate (`mfcr r1, SS4` / `0x10A1`) followed by a halfword-read of SGFMUSTAT ≈ `0xC0`, then a program/erase stub. The SGFM base, privilege rule, and command-buffer sequence are identified from the *MMC2114* manual (see “Flash write path (SGFM)” above); no live program or erase has been demonstrated. This image still has no resident flash programmer. A5/A6 write and execute RAM only.
+- [ ] SS4 elevate (`mfcr r1, SS4` / `0x10A1`) followed by a halfword-read of SGFMUSTAT ≈ `0xC0`, then a program/erase stub. The SGFM base, privilege rule, and command-buffer sequence are identified from the [*MMC2114*](../docs/references/MMC2114D_Rev1_Apr2002.pdf) manual (see “Flash write path (SGFM)” above); no live program or erase has been demonstrated. This image still has no resident flash programmer. A5/A6 write and execute RAM only.
 
 ## Method
 
@@ -162,4 +163,4 @@ The “no bootloader / no flash-program code” finding and the timed-KL15 proto
 
 The proven RAM write + execute sequence is Heinz’s public result in that same thread, post #147 (20 Nov 2026): `0xA3` to level 3, `0xA5` to `0x00401400`, `0xA6` **K / L / K / O**, marker `0x5A` at `0x00401400`. Access-level ≥ 2 for A5, ASCII-hex address framing, and the Gauge.S same-session constraint are from live E46 818.3 probing.
 
-The SGFM base `0x00D00000`, supervisor-only rule, SGFMUSTAT/SGFMCMD map, and command-buffer sequence are from the *MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002), Section 10 / Table 10-2 / §10.8.3.2. User-mode probes of `0xD00000` faulting is the bench pattern that matches that privilege rule. The SS4 elevate (`0x10A1`) plus program/erase stub has not been demonstrated on hardware.
+The SGFM base `0x00D00000`, supervisor-only rule, SGFMUSTAT/SGFMCMD map, and command-buffer sequence are from the [*MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002)](../docs/references/MMC2114D_Rev1_Apr2002.pdf), Section 10 / Table 10-2 / §10.8.3.2. User-mode probes of `0xD00000` faulting is the bench pattern that matches that privilege rule. The SS4 elevate (`0x10A1`) plus program/erase stub has not been demonstrated on hardware.

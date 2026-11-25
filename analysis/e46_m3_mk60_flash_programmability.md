@@ -16,8 +16,8 @@ contain **no flash program/erase driver, no bootloader, and no copy-to-RAM progr
 same "flat program, no loader" finding recorded in the image notes, now tied to the specific flash
 technology. A resident routine therefore cannot program the program-flash region; that must go
 through the SGFM controller. The application images still do not drive those registers, but the
-family base is the M·CORE constant **`0x00D00000`** (*MMC2114 Advance Information Manual*, MMC2114/D
-Rev. 1, April 2002, Table 10-2). Every SGFM register is supervisor-only; user-mode accesses have no
+family base is the M·CORE constant **`0x00D00000`** ([*MMC2114 Advance Information Manual*, MMC2114/D
+Rev. 1, April 2002, Table 10-2](../docs/references/MMC2114D_Rev1_Apr2002.pdf)). Every SGFM register is supervisor-only; user-mode accesses have no
 effect and result in a cycle-termination transfer error, which matches bench probes of `0xD00000`
 from a user-mode stub. No live program or erase has been demonstrated. The resident KWP/K-line stack offers no download service and
 no programming session, and the SecurityAccess (0x27) scheme — though symmetric — reaches only plain
@@ -42,7 +42,7 @@ From Freescale AN2286, AN1756 and the SGFM/ColdFire-CFM register model:
   written once before any command (or no command executes), a **status** register with **CBEIF**
   (command-buffer-empty, bit 7) and **CCIF** (command-complete, bit 6) plus ACCERR/PVIOL/BLANK, a
   **command** register, and protection/security registers.
-- Commands (*MMC2114* Table 10-5): **`$05` erase-verify** (RDARY1 / all 1s), **`$20` word program**
+- Commands ([*MMC2114*](../docs/references/MMC2114D_Rev1_Apr2002.pdf) Table 10-5): **`$05` erase-verify** (RDARY1 / all 1s), **`$20` word program**
   (PGM), **`$40` page erase** (PGERS), **`$41` mass erase** (MASERS).
 - Sequence: write CLKD once; clear ACCERR/PVIOL; write the target word to the flash address; write
   the command; write 1 to CBEIF to launch; poll CCIF until set.
@@ -63,8 +63,8 @@ block at `0xEF82xx`, the SIM at `0xFF0000`) but **no block driven as a flash com
 controller**. The stock M·CORE flash-control slot `0x00D00000` appears only as data, never as a
 code-driven MMIO base. [C]
 
-That does not mean the address is unknown. The *MMC2114 Advance Information Manual* (MMC2114/D
-Rev. 1, April 2002) maps FLASH registers (SGFM) at **`0x00D00000`** (CMFR occupied the same slot on
+That does not mean the address is unknown. The [*MMC2114 Advance Information Manual* (MMC2114/D
+Rev. 1, April 2002)](../docs/references/MMC2114D_Rev1_Apr2002.pdf) maps FLASH registers (SGFM) at **`0x00D00000`** (CMFR occupied the same slot on
 the MMC2107). Table 10-2 marks every SGFM register **supervisor access only**: user-mode accesses
 have no effect and result in a cycle-termination transfer error. Bench probes of `0xD00000` from a
 user-mode RAM stub faulted in exactly that way — the address was right; the privilege was not. The
@@ -137,9 +137,9 @@ not contain a resident programming path.
 ## Method
 The `lrw` peripheral scan, the KWP service-table parse, and the 0x27 / 0x31 handler reads were done
 on the raw 817.3, 818.3 and 820.3 dumps and a headless Ghidra recovery of these public images,
-cross-referenced with the *MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002),
+cross-referenced with the [*MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002)](../docs/references/MMC2114D_Rev1_Apr2002.pdf),
 Freescale AN2286, and the SGFM register model. The `0x00D00000` base, supervisor-only rule, and
-command-buffer sequence are from that manual (Table 10-2, §10.8.3.2); user-mode probe faults are
+command-buffer sequence are from that manual (Table 10-2, §10.8.3.2), in this repo at `docs/references/MMC2114D_Rev1_Apr2002.pdf`; user-mode probe faults are
 the matching bench pattern. The "no bootloader
 / no flash code" result is the one already recorded in the image notes, re-confirmed here and tied
 to the SGFM technology. No BIN was written and nothing was written to a car.

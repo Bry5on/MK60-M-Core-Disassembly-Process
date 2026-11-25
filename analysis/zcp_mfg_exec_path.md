@@ -120,7 +120,7 @@ that lets outside code in. (The parent docs' "reprogramming must come from outsi
 having no resident loader — which is still true.)
 
 The RAM write and the `jsr` have been demonstrated on hardware. The SGFM controller, privilege rule,
-and command-buffer sequence are identified from the *MMC2114* manual (below). A live program or erase
+and command-buffer sequence are identified from the [*MMC2114*](../docs/references/MMC2114D_Rev1_Apr2002.pdf) manual (below). A live program or erase
 has **not** been demonstrated. This path writes and executes **SRAM only** until a supervisor stub
 drives SGFM.
 
@@ -191,8 +191,9 @@ demonstrated.
 
 The flash-controller register base is the M·CORE family constant **`0x00D00000`**: CMFR on the
 MMC2107, SGFM on the MMC2114 / MMC2113 / MMC2112. The SC5500xx firmware names SGFM. Source:
-*MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002; also covering MMC2113 and
-MMC2112), system memory map and Section 10, Table 10-2.
+[*MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002)](../docs/references/MMC2114D_Rev1_Apr2002.pdf)
+(also covering MMC2113 and MMC2112), system memory map and Section 10, Table 10-2.
+The manual is in this repo at `docs/references/MMC2114D_Rev1_Apr2002.pdf`.
 
 Bench probes of `0xD00000` from a user-mode RAM stub faulted not because the address was wrong, but
 because **every SGFM register is supervisor-only**. The manual states that user-mode accesses to
@@ -206,7 +207,7 @@ matches the bench fault pattern.
 
 Launch sequence (command-buffer based, not MPC5554 DONE/EHV): write the data word to the flash array
 address → write the command to SGFMCMD → write 1 to CBEIF → poll CCIF. No intermediate SGFM writes
-are permitted between those three steps (*MMC2114* §10.8.3.2).
+are permitted between those three steps ([*MMC2114*](../docs/references/MMC2114D_Rev1_Apr2002.pdf) §10.8.3.2).
 
 The stub must run supervisor. Path under test: `mfcr r1, SS4` (encoding **`0x10A1`**) elevates; then
 a halfword-read of USTAT. Delivery is the proven manufacturer K-line path: A5 upload into RAM, then
