@@ -111,6 +111,35 @@ With no resident programming path, the only routes that could in principle write
 
 The highest-value next step is obtaining an actual flashable-unit bootloader image or a captured
 authenticated flash session, since the application images do not contain the programming path.
+The datasheet JTAG/OnCE connector pinout is in section 8.
+
+## 8. JTAG/OnCE connector pinout (MMC2114D reference)
+On this M·CORE part the BDM-equivalent debug interface is the **JTAG/OnCE port**. The MMC2114D
+Rev.1 (April 2002) manual, Section 22.14.18 / Figure 22-17 "Recommended Connector Interface to
+JTAG/OnCE Port" (p. 609), specifies a 14-pin 0.1-inch (center-to-center) header:
+
+| Pin | Signal |
+|-----|--------|
+| 1 | TDI |
+| 2 | GND |
+| 3 | TDO |
+| 4 | GND |
+| 5 | TCLK |
+| 6 | GND |
+| 7 | KEY (no connect) |
+| 8 | GPIO/SI |
+| 9 | TARGET_RESET (wired-OR with system reset; must be able to assert/monitor system RESET) |
+| 10 | TMS |
+| 11 | TARGET VDD |
+| 12 | DE (debug enable) |
+| 13 | GPIO/SO |
+| 14 | TRST |
+
+Each signal has a 10 kΩ pull referenced to TARGET VDD. GPIO/SI and GPIO/SO are **not** required
+for OnCE operation; they exist only for the optional high-speed download interface. [C]
+
+This is the generic MMC2114 recommended connector from the datasheet — what the silicon exposes —
+not a verified mapping of pads or a harness on any MK60 board.
 
 ## Open questions
 - [ ] Flash-controller register base on this customised silicon (not in the firmware).
