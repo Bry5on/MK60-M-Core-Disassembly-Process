@@ -2,7 +2,7 @@
 
 Hand-written note (2026-11-20; updated 2026-11-25). Companion to `e46_m3_non_zcp_mk60_image.md`, `nonm_mk60_image.md`, `zcp_mfg_exec_path.md`, `e46_m3_mk60_image_check_word.md` and `e46_m3_mk60_can_map.md` (no `0x7xx` diagnostic identifiers on either CAN bus; workshop access remains K-line). Addresses are from the 818.3 non-ZCP image unless a twin is named.
 
-This is a description of what the application image contains — and what it does not. It is not a procedure for programming a module. The manufacturer K-line path can write and execute **RAM**; it does not, by itself, program flash.
+This is a description of what the application image contains — and what it does not. It is not a finished flash-programming procedure. The manufacturer K-line path can write and execute **RAM**; it does not, by itself, program flash. The on-chip flash controller (SGFM at `0x00D00000`) and the remaining supervisor-elevate path are documented below; no live program or erase has been demonstrated yet.
 
 Confidence: **[C]** read from the 818.3 listing or from the cited companion docs, **[I]** inferred, **[open]** not established. Bench results below are attributed to their source (Heinz, NAM3 forum post #147, or live 818.3 framing/session probes).
 
@@ -65,6 +65,62 @@ How much of the level-3 window (`0x401142`–`0x401700`) or the level-4 window (
 
 Over K+DCAN with MK60 Tool, every Send re-issues the knock, which reboots the module and wipes SRAM and the access level, so `A3` → `A5` → `A4`/`A6` cannot complete in one session. **Gauge.S** does the knock dongle-side and keeps one session alive across those frames — required for the write+exec sequence.
 
+
+## Flash write path (SGFM)
+
+This remains **not a finished flash-programming procedure**. No live program or erase has been
+demonstrated. What follows is the controller map, privilege rule, and software path that a RAM stub
+uploaded over A5/A6 would have to drive.
+
+### Controller base and privilege
+
+The flash-controller register base is the M·CORE family constant **`0x00D00000`**: CMFR on the
+MMC2107, SGFM (Second Generation FLASH for M·CORE) on the MMC2114 / MMC2113 / MMC2112. The
+SC5500xx firmware names SGFM.
+
+Source: *MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002; also covering MMC2113
+and MMC2112), system memory map and Section 10, Table 10-2. That is the Motorola/Freescale M·CORE
+SGFM family reference (sometimes listed as the MMC2114 Advance Information Reference Manual).
+
+Bench probes of `0xD00000` from a user-mode RAM stub faulted not because the address was wrong, but
+because **every SGFM register is supervisor-only**. The manual states that user-mode accesses to
+supervisor-only addresses have no effect and result in a cycle-termination transfer error. That
+matches the bench fault pattern.
+
+### Register map (SGFM base `0xD00000`)
+
+| Address | Register | Notes |
+|---|---|---|
+| `0xD0001C` | **SGFMUSTAT** | idle / reset ≈ `0xC0` (CBEIF command-buffer-empty + CCIF command-complete) |
+| `0xD00020` | **SGFMCMD** | PGM `$20`, page-erase `$40`, mass-erase `$41`, erase-verify `$05` |
+
+### Command-buffer launch sequence
+
+This is a command-buffer machine, not the later MPC5554 DONE/EHV model. After the usual setup in the
+manual (clock divider, bank select), the three-step write sequence is:
+
+1. Write the data word to the flash array address (the data value is ignored for erase and verify).
+2. Write the command to SGFMCMD.
+3. Write 1 to CBEIF to launch; poll CCIF for completion.
+
+No intermediate writes to the SGFM module are permitted between those three steps (*MMC2114*
+§10.8.3.2).
+
+### Privilege door and delivery
+
+The stub must run supervisor. Path under test: `mfcr r1, SS4` (encoding **`0x10A1`**) elevates; then
+a halfword-read of USTAT. Delivery remains the manufacturer K-line path already proven for RAM: A5
+uploads the stub into RAM, then A6 **K / L / K / O** (or `'O'`) executes it. On 818.3, the usual
+level-3 `'O'` descriptor is `0x401142`. Same-session tooling (Gauge.S) still applies.
+
+### What is and is not shown
+
+- (a) The datasheet and family map identify SGFM at `0x00D00000`.
+- (b) Bench user-mode faults match the supervisor-only rule.
+- (c) A5/A6 RAM exec is proven (Heinz, NAM3 #147).
+- (d) SS4 elevate plus the SGFM program sequence is the remaining software path — **not yet green
+  on hardware**. No live program or erase has been demonstrated.
+
 ## Calibration is read from flash
 
 Dataset-10 A and B (and T0, T3, T4) are `ld.h`’d from flash on each evaluation of `r_ref` / `r_est`. There is no init copy of those tables into RAM, and no factory command that pokes a new B into a RAM alias of the column. Coding / NCS selects the dataset *index* (`k_ds`), not the cells themselves: `BAUART` (id `0x0425`, `BAUART_MK60`) is packed coding byte 1, mask `0x1F`, stored at `0x40100F` on 818.3. In C06, data 10 is `coupe_s` / `csl`, 11 is `coupe`, and 12 is `cabrio`. The example car’s traces read `BAUART_MK60 = csl`, so they run dataset 10; that coding cannot install the ZCP `B = 2400`. See `e46_m3_dataset10_vs_zcp.md`. [C]
@@ -98,10 +154,12 @@ Flash **erase granularity** is a **1 KB page** on this SGFM-class part (Freescal
 - [ ] Whether a flash program must also write the ECC window at `0x00100000+`, or whether ECC is automatic.
 - [ ] A live read past `0x40000` on an 818.3 unit, to confirm the 384 KB firmware window on that hardware.
 - [ ] How much of the level-3 / level-4 RAM windows is safe, and whether a watchdog is kicked if interrupts stay masked during a long `jsr`.
-- [ ] The flash-controller program/erase sequence. The manufacturer K-line path can write and execute RAM (`0xA5`, then `0xA6` **K / L / K / O**); it does not program flash. This image still has no resident flash programmer.
+- [ ] SS4 elevate (`mfcr r1, SS4` / `0x10A1`) followed by a halfword-read of SGFMUSTAT ≈ `0xC0`, then a program/erase stub. The SGFM base, privilege rule, and command-buffer sequence are identified from the *MMC2114* manual (see “Flash write path (SGFM)” above); no live program or erase has been demonstrated. This image still has no resident flash programmer. A5/A6 write and execute RAM only.
 
 ## Method
 
 The “no bootloader / no flash-program code” finding and the timed-KL15 protocol are those already recorded in `e46_m3_non_zcp_mk60_image.md` and `nonm_mk60_image.md`, re-checked against the 818.3 listing. The `jsr` gates were read from 818.3 `mfg_rx_service` and the class-`0xA6` handler, and match the ZCP twin in `zcp_mfg_exec_path.md`. The memory map is credited to the nam3forum thread cited above; the MISR registers inside that map were identified separately in `e46_m3_mk60_image_check_word.md`.
 
 The proven RAM write + execute sequence is Heinz’s public result in that same thread, post #147 (20 Nov 2026): `0xA3` to level 3, `0xA5` to `0x00401400`, `0xA6` **K / L / K / O**, marker `0x5A` at `0x00401400`. Access-level ≥ 2 for A5, ASCII-hex address framing, and the Gauge.S same-session constraint are from live E46 818.3 probing.
+
+The SGFM base `0x00D00000`, supervisor-only rule, SGFMUSTAT/SGFMCMD map, and command-buffer sequence are from the *MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002), Section 10 / Table 10-2 / §10.8.3.2. User-mode probes of `0xD00000` faulting is the bench pattern that matches that privilege rule. The SS4 elevate (`0x10A1`) plus program/erase stub has not been demonstrated on hardware.

@@ -32,8 +32,8 @@ writes (`0xA5`) at **access level 1** [doc]. Live E46 818.3 probing required acc
 SRAM writes (level 2 is free on that unit: `0xA3` with param 32 raised the level and replied `f`/`2`). A5
 RAM writes are proven — see §4.
 
-Note on flash: `0xA5` writes are plain stores. M·CORE flash needs the flash-controller program/erase
-sequence, and the app image has **no flash-writing code** (`zcp_mk60_image.md`). So `0xA5` into a flash
+Note on flash: `0xA5` writes are plain stores. M·CORE flash needs the SGFM program/erase sequence
+(see §4), and the app image has **no flash-writing code** (`zcp_mk60_image.md`). So `0xA5` into a flash
 address (0x0..0x3FFFF) will not program flash — but `0xA5` into **RAM (0x400000+) works**, which is the basis
 for everything below.
 
@@ -119,8 +119,10 @@ executes it via this path**. A hidden bootloader is not required to get code run
 that lets outside code in. (The parent docs' "reprogramming must come from outside" is about the app image
 having no resident loader — which is still true.)
 
-The RAM write and the `jsr` have been demonstrated on hardware. The flash-controller sequence that would
-program flash has **not**. This path writes and executes **SRAM only**.
+The RAM write and the `jsr` have been demonstrated on hardware. The SGFM controller, privilege rule,
+and command-buffer sequence are identified from the *MMC2114* manual (below). A live program or erase
+has **not** been demonstrated. This path writes and executes **SRAM only** until a supervisor stub
+drives SGFM.
 
 ### Bench-proven sequence (Heinz, NAM3 forum post #147, 20 Nov 2026)
 
@@ -174,11 +176,45 @@ write+exec sequence.
    comparison and nothing written to flash. The staged routine drives the CAN controller directly (init a
    mailbox, push, wait for complete), since the mfg session runs independently of the application's CAN task.
    **Still open.**
-4. **Flash-program routine.** Only after the above: an M·CORE flash-program routine (flash-controller
-   registers were located during image recovery; see `nonm_mk60_image.md` "flash-register references").
-   **Still open** — the A5/A6 path does not program flash.
+4. **SS4 elevate + SGFM program/erase stub.** After the above: run `mfcr r1, SS4` (encoding
+   **`0x10A1`**) to elevate, halfword-read SGFMUSTAT at `0xD0001C` and expect idle ≈ `0xC0`, then a
+   program/erase stub using the command-buffer sequence below. **Still open** — no live program or
+   erase has been demonstrated. A5/A6 themselves do not program flash.
 
 ---
+
+
+### Flash write path (SGFM)
+
+This is still **not a finished flash-programming procedure**. No live program or erase has been
+demonstrated.
+
+The flash-controller register base is the M·CORE family constant **`0x00D00000`**: CMFR on the
+MMC2107, SGFM on the MMC2114 / MMC2113 / MMC2112. The SC5500xx firmware names SGFM. Source:
+*MMC2114 Advance Information Manual* (MMC2114/D Rev. 1, April 2002; also covering MMC2113 and
+MMC2112), system memory map and Section 10, Table 10-2.
+
+Bench probes of `0xD00000` from a user-mode RAM stub faulted not because the address was wrong, but
+because **every SGFM register is supervisor-only**. The manual states that user-mode accesses to
+supervisor-only addresses have no effect and result in a cycle-termination transfer error. That
+matches the bench fault pattern.
+
+| Address | Register | Notes |
+|---|---|---|
+| `0xD0001C` | **SGFMUSTAT** | idle / reset ≈ `0xC0` (CBEIF command-buffer-empty + CCIF command-complete) |
+| `0xD00020` | **SGFMCMD** | PGM `$20`, page-erase `$40`, mass-erase `$41`, erase-verify `$05` |
+
+Launch sequence (command-buffer based, not MPC5554 DONE/EHV): write the data word to the flash array
+address → write the command to SGFMCMD → write 1 to CBEIF → poll CCIF. No intermediate SGFM writes
+are permitted between those three steps (*MMC2114* §10.8.3.2).
+
+The stub must run supervisor. Path under test: `mfcr r1, SS4` (encoding **`0x10A1`**) elevates; then
+a halfword-read of USTAT. Delivery is the proven manufacturer K-line path: A5 upload into RAM, then
+A6 **K / L / K / O** (or `'O'`). On 818.3, the usual level-3 `'O'` descriptor is `0x401142`.
+
+Evidence so far: (a) the datasheet and family map identify SGFM; (b) bench user-mode faults match
+supervisor-only; (c) A5/A6 RAM exec is proven (Heinz #147); (d) SS4 elevate plus the SGFM program
+sequence is the remaining software path — **not yet green on hardware**.
 
 ## 5. Open items / caveats / next steps
 
@@ -188,8 +224,8 @@ write+exec sequence.
 - **Watchdog:** whether a watchdog would reset a long `jsr` (interrupts masked) remains **open**.
 - **Brick risk:** everything here writes a live module. We hold the full dump to restore, and BDM/chip-off is
   the backstop. The proven path touches SRAM only; flash is unchanged by A5/A6 themselves.
-- **Flash routine:** still needs the M·CORE flash-controller program/erase sequence + register addresses
-  (from the recovery session's flash-register references). That step is **not** demonstrated.
+- **Flash routine:** SGFM is at `0x00D00000` (see §4). Milestone 4 is SS4 elevate (`0x10A1`) + read
+  USTAT ≈ `0xC0`, then a program/erase stub. That step is **not** demonstrated on hardware.
 
 ## Address quick-reference (ZCP)
 
