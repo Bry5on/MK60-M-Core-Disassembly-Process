@@ -93,6 +93,14 @@ e46-mk60-tool probe --lo 0x600 --hi 0x7ff  # widen the sweep if the CRO sits out
 e46-mk60-tool dump --cro 0x797 --dto 0x798 --addr 0x0 --len 0x8000 --out dump.bin
 
 e46-mk60-tool --raw arm                  # same, but print the K-line bytes on the wire
+
+# Manufacturing MMIO (K/L/K/O exec stub). Read-only loads into scratch 0x401400.
+e46-mk60-tool mfg-mmio-read --addr 0xFF8032 --width 2
+e46-mk60-tool mfg-mmio-sweep --start 0xEF8600 --end 0xEF8F00 --step 0x100 --width 2
+# Elevated sweep: inject mfcr r1,ss4 (0x10A1) before each ld (818.3 supervisor gate).
+# FAULT after elevate = wrong/protected map, not privilege. No flash program/erase.
+e46-mk60-tool mfg-mmio-sweep --elevate --start 0xFF8000 --end 0xFF80FF --step 2 --width 2
+e46-mk60-tool mfg-mmio-read --elevate --addr 0xFF8032 --width 2
 ```
 
 Typical bench flow: wire Gauge.S (K-line→MK60 pin 2, CAN→11/15, common 12V/GND) → `ping` → `arm`

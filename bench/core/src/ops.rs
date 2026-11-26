@@ -1262,13 +1262,15 @@ fn mcore_build_u32(reg: u8, tmp: u8, addr: u32) -> Vec<u8> {
 /// 4=word), stores the value to scratch +4, with a sentinel before (ran) and after (read survived). One
 /// address per run so a faulting/hanging probe is isolated. The non-M peripheral registers are 16-bit,
 /// so a WORD read is the wrong width and FAULTS - halfword (2) is the right default. r2 untouched.
-///   r5 = 0x401400 ; sentinel 0x55 -> +0 ; ZERO +1..+8 ; build addr in r4 ; ld.X r3,(r4,0) ; st.X r3 -> +4 ;
-///   sentinel 0x66 -> +8 ; jmp r15
+/// When `elevate` is set, inserts `mfcr r1,ss4` (0x10A1) after the zeroing block so the 818.3 privilege
+/// gate raises S before the load - READ-ONLY (no flash program/erase).
+///   r5 = 0x401400 ; sentinel 0x55 -> +0 ; ZERO +1..+8 ; [optional 10A1] ; build addr in r4 ; ld.X ;
+///   st.X -> +4 ; sentinel 0x66 -> +8 ; jmp r15
 /// The stub zeroes +1..+8 itself so the whole 9-byte result block is STUB-determined, not reliant on the
 /// caller's scratch pre-clear - which does not reliably land on a REUSED (keep-alive) session, leaving
 /// frame-fragment garbage in the don't-care bytes. With this, a fault reads a clean `55 00..00` and a mapped
 /// read `55 00 00 00 <value> .. 66`, identical fresh or reused.
-fn mmio_probe_stub(addr: u32, width: u8) -> Vec<u8> {
+fn mmio_probe_stub(addr: u32, width: u8, elevate: bool) -> Vec<u8> {
     let mut s: Vec<u8> = vec![
         0x33, 0x65, 0x61, 0x46, 0x3C, 0x86, 0x1E, 0x65, // r5 = 0x401400
         0x65, 0x53, 0xB3, 0x05, // sentinel 0x55 -> +0
@@ -1281,6 +1283,13 @@ fn mmio_probe_stub(addr: u32, width: u8) -> Vec<u8> {
         0x93, 0x15, // st.w r3,(r5,1) -> zeros +4..+7
         0xB3, 0x85, // st.b r3,(r5,8)
     ];
+    // Proven 818.3 user->supervisor gate: mfcr r1,ss4 (0x10A1). The privilege-violation handler accepts
+    // only this insn, sets S in EPSR, bumps EPC, and rte's so the next insn runs supervisor. Safe if already
+    // supervisor (mfcr just reads ss4 into r1; r1 is unused by the rest of this stub). Injected per probe so
+    // we never assume S sticks across a session reuse / re-knock. READ-ONLY after this - no SGFM writes.
+    if elevate {
+        s.extend_from_slice(&[0x10, 0xA1]); // mfcr r1, ss4
+    }
     s.extend_from_slice(&mcore_build_u32(4, 6, addr)); // r4 = addr (scratch r6)
     match width {
         4 => s.extend_from_slice(&[0x83, 0x04, 0x93, 0x15]), // ld.w r3,(r4,0) ; st.w r3,(r5,1)   -> +4 (word)
@@ -1310,6 +1319,7 @@ pub fn mfg_mmio_read(
     auto_ign: bool,
     addr: u32,
     width: u8,
+    elevate: bool,
     sink: Sink,
 ) -> Result<()> {
     let width = if matches!(width, 1 | 2 | 4) { width } else { 2 };
@@ -1318,10 +1328,11 @@ pub fn mfg_mmio_read(
         4 => "word",
         _ => "halfword",
     };
-    let stub = mmio_probe_stub(addr, width);
+    let stub = mmio_probe_stub(addr, width, elevate);
     let (k_init, l_frames, k_final, o_exec) = exec_frames(&stub);
     sink(Event::Log(format!(
-        "mfg mmio-read 0x{addr:08X} ({wname}): stub {} (P1=0x{:08X}). Read-only; one address, isolated. A hang needs a KL30 power cycle.",
+        "mfg mmio-read 0x{addr:08X} ({wname}{}): stub {} (P1=0x{:08X}). Read-only; one address, isolated. A hang needs a KL30 power cycle.",
+        if elevate { ", elevated 10A1" } else { "" },
         hexs(&stub),
         exec_finalize_p1(&stub)
     )));
@@ -1377,7 +1388,9 @@ pub fn mfg_mmio_read(
                 };
                 sink(Event::Log(format!("  0x{addr:08X} = {shown}  [read OK - 0x66 @+8]. Address is MAPPED and readable.")));
             } else {
-                sink(Event::Log(format!("  0x{addr:08X}: READ FAULTED ({wname}; 0x55 ran, no 0x66 @+8) - unmapped, OR the wrong width (non-M peripherals are 16-bit; a WORD read faults - retry as halfword/byte). Session survived (trapped, not hung).")));
+                sink(Event::Log(format!("  0x{addr:08X}: READ FAULTED ({wname}; 0x55 ran, no 0x66 @+8) - unmapped, OR the wrong width (non-M peripherals are 16-bit; a WORD read faults - retry as halfword/byte){}. Session survived (trapped, not hung).",
+                    if elevate { " — elevate ran (10A1), so this is NOT a privilege wall" } else { ", OR supervisor-only (try elevated sweep)" }
+                )));
             }
         }
         Some((0x72, b)) => sink(Event::Log(format!("  scratch read-back short ({} bytes): {}", b.len(), hexs(b)))),
@@ -1398,8 +1411,8 @@ enum MmioOutcome {
 /// Stage + exec + read ONE MMIO probe on an open, level-3 session, SILENTLY (no per-frame logging). Pre-
 /// clears scratch, runs the K/L/K/O exec with the width-specific read stub, reads back the 9-byte scratch,
 /// and classifies it. Does not enter or tear down the session - the caller owns that. Used by the sweep.
-fn mmio_probe_once(br: &mut Bridge, addr: u32, width: u8) -> MmioOutcome {
-    let stub = mmio_probe_stub(addr, width);
+fn mmio_probe_once(br: &mut Bridge, addr: u32, width: u8, elevate: bool) -> MmioOutcome {
+    let stub = mmio_probe_stub(addr, width, elevate);
     let (k_init, l_frames, k_final, o_exec) = exec_frames(&stub);
     let _ = mfg_tx_one_quiet(br, &exec_write_frame(REG_SCRATCH, &[0u8; 12])); // pre-clear scratch
     let _ = mfg_tx_one_quiet(br, &k_init);
@@ -1469,6 +1482,8 @@ fn mmio_notable(v: u32, width: u8) -> bool {
 /// end. Stops on a HANG (no scratch reply) - that needs a KL30 power cycle - so a sweep is resumed from the
 /// next address. Read-only: it only reads registers. Hunts the non-M flash-controller block the app never
 /// touches. `step` is the address stride (defaults to the width); `end` is inclusive.
+/// When `elevate` is true, each exec stub injects the proven `10A1` (mfcr r1,ss4) supervisor gate before the
+/// load; `fast` is forced off (0xA4 cannot elevate). A FAULT then means wrong/protected map, not privilege.
 #[allow(clippy::too_many_arguments)]
 pub fn mfg_mmio_sweep(
     br: &mut Bridge,
@@ -1485,9 +1500,12 @@ pub fn mfg_mmio_sweep(
     step: u32,
     width: u8,
     fast: bool,
+    elevate: bool,
     sink: Sink,
 ) -> Result<()> {
     // Fast mode is a single 0xA4 'U' byte read per address (no exec stub): far quicker, but byte-width only.
+    // Elevated mode always uses the exec stub (0xA4 cannot inject 10A1), so elevate forces fast off.
+    let fast = fast && !elevate;
     let width = if fast { 1 } else if matches!(width, 1 | 2 | 4) { width } else { 2 };
     let step = if step == 0 { width as u32 } else { step };
     let wname = match width {
@@ -1513,11 +1531,19 @@ pub fn mfg_mmio_sweep(
     // probe stays ON for every other (single-shot) exec op via the global default. Restore after the sweep.
     let prev_exec_probe = reuse_exec_probe();
     set_reuse_exec_probe(false);
+    let mode = if elevate {
+        ", elevated 10A1 (supervisor before each ld)"
+    } else if fast {
+        ", fast 0xA4 read"
+    } else {
+        ""
+    };
     sink(Event::Log(format!(
-        "mfg mmio-sweep: 0x{start:08X}..=0x{end:08X} step 0x{step:X} ({wname}{}). One knock, session reused per address. {}",
-        if fast { ", fast 0xA4 read" } else { "" },
+        "mfg mmio-sweep: 0x{start:08X}..=0x{end:08X} step 0x{step:X} ({wname}{mode}). One knock, session reused per address. {}",
         if fast {
             "An unreadable address just advances; cancel + KL30 if the module hangs (e.g. 0xEF8xxx)."
+        } else if elevate {
+            "Each probe injects mfcr r1,ss4 then a read-only ld. FAULT after elevate = wrong/protected map, not privilege. A HANG stops the sweep (KL30; resume from the next address)."
         } else {
             "A HANG stops the sweep (KL30 to recover, resume from the next address)."
         }
@@ -1539,7 +1565,7 @@ pub fn mfg_mmio_sweep(
             break;
         }
         let _ = mfg_tx_one_quiet(br, &raise3); // ensure level 3 (idempotent; reuse already raised it)
-        let outcome = if fast { mmio_probe_once_a4(br, addr) } else { mmio_probe_once(br, addr, width) };
+        let outcome = if fast { mmio_probe_once_a4(br, addr) } else { mmio_probe_once(br, addr, width, elevate) };
         match outcome {
             MmioOutcome::Mapped(v) => {
                 consec_noreply = 0;
@@ -1553,7 +1579,14 @@ pub fn mfg_mmio_sweep(
             }
             MmioOutcome::Faulted => {
                 consec_noreply = 0;
-                sink(Event::Log(format!("  0x{addr:08X}  fault (unmapped or supervisor-only)")));
+                sink(Event::Log(format!(
+                    "  0x{addr:08X}  FAULT{}",
+                    if elevate {
+                        " (unmapped/wrong width/protected — elevate ran, not a privilege wall)"
+                    } else {
+                        " (unmapped or supervisor-only)"
+                    }
+                )));
             }
             MmioOutcome::NoRun if !norun_reknocked => {
                 // Stub did not run: on a REUSED session this means descriptor-exec went stale (the case the
@@ -2716,7 +2749,7 @@ mod tests {
 
         // The probe stub: scratch build, sentinel 0x55, zero +1..+8, address build, ld/st, sentinel 0x66, jmp.
         // halfword (default, 2) -> ld.h r3,(r4,0) ; st.h r3,(r5,2hw=+4).
-        let stub = mmio_probe_stub(0x00FF_8032, 2);
+        let stub = mmio_probe_stub(0x00FF_8032, 2, false);
         assert_eq!(REG_SCRATCH, 0x0040_1400);
         assert_eq!(&stub[..12], &[0x33, 0x65, 0x61, 0x46, 0x3C, 0x86, 0x1E, 0x65, 0x65, 0x53, 0xB3, 0x05]);
         // the 12-byte zeroing block: movi r3,0 ; st.b +1/+2/+3 ; st.w +4..+7 ; st.b +8.
@@ -2725,8 +2758,18 @@ mod tests {
         assert_eq!(&stub[42..46], &[0xC3, 0x04, 0xD3, 0x25]);
         assert_eq!(&stub[46..52], &[0x66, 0x63, 0xB3, 0x85, 0x00, 0xCF]);
         // word (4) -> ld.w/st.w ; byte (1) -> ld.b/st.b.
-        assert_eq!(&mmio_probe_stub(0x00FF_8032, 4)[42..46], &[0x83, 0x04, 0x93, 0x15]);
-        assert_eq!(&mmio_probe_stub(0x00FF_8032, 1)[42..46], &[0xA3, 0x04, 0xB3, 0x45]);
+        assert_eq!(&mmio_probe_stub(0x00FF_8032, 4, false)[42..46], &[0x83, 0x04, 0x93, 0x15]);
+        assert_eq!(&mmio_probe_stub(0x00FF_8032, 1, false)[42..46], &[0xA3, 0x04, 0xB3, 0x45]);
+
+        // Elevated stub: same layout with 0x10A1 inserted after zeroing (before address build).
+        let estub = mmio_probe_stub(0x00FF_8032, 2, true);
+        assert_eq!(&estub[..24], &stub[..24]);
+        assert_eq!(&estub[24..26], &[0x10, 0xA1]); // mfcr r1, ss4
+        assert_eq!(&estub[26..44], &stub[24..42]); // address build
+        assert_eq!(&estub[44..50], &[0xC3, 0x04, 0xD3, 0x25, 0x66, 0x63]); // ld.h/st.h + start of 0x66
+        assert_eq!(estub.len(), stub.len() + 2);
+        // Sanity halfword at a known-good user MMIO addr still ends with jmp r15.
+        assert_eq!(estub[estub.len() - 2..], [0x00, 0xCF]);
     }
 
     // The RAM code-exec path (exec_stub + exec_frames) that the kept mmio-read/sweep stubs reuse: lock down
