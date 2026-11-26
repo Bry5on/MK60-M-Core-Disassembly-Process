@@ -1,0 +1,31 @@
+# Self-contained ignore for the bench tool, so these rules travel with this
+# directory if it is copied into another repo. (Unlike the repo-root .gitignore,
+# this does NOT blanket-ignore *.bin or *.lock - so gui/firmware/*.bin, the
+# build.rs firmware snapshot, and Cargo.lock stay tracked with no negations.)
+
+# Rust build output (regenerable) - matches target/ at any depth (core/host/gui)
+target/
+
+# PlatformIO firmware build output (regenerable)
+.pio/
+
+# NVM / EEPROM dumps contain the user's VIN/serial - NEVER commit
+dumps/
+
+# Built app bundles (regenerable via gui/make-app.sh; distribute via Releases)
+*.exe
+*.app/
+*.zip
+
+# OS / editor cruft
+.DS_Store
+*.swp
+
+# Re-include the files bench must commit, in case the destination repo's root
+# .gitignore blanket-ignores *.bin or *.lock (common). A deeper .gitignore
+# overrides a parent's file pattern, and gui/firmware/ is not a dir-level
+# exclusion, so these negations win. (dumps/ and .pio/ stay ignored - a file
+# under an excluded directory cannot be re-included.)
+!gui/firmware/*.bin
+!gui/firmware/**/*.bin
+!Cargo.lock

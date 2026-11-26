@@ -1,0 +1,16 @@
+# Workspace for the E46 MK60 Tool.
+#   core/  — e46-mk60-tool-core: reusable bridge/CCP/KWP/probe logic (lib)
+#   host/  — e46-mk60-tool: CLI front end (bin), depends on core
+# gui/ is kept out of the workspace for now (heavy egui deps, its own lock); it will
+# depend on core once the bus flows are validated and we wire it to real calls.
+[workspace]
+resolver = "2"
+members = ["core", "host"]
+exclude = ["gui"]
+
+# Release builds are distributed, so strip symbol/debug tables (smaller, less to leak). The absolute
+# source paths rustc bakes into panic strings (incl. ~/.cargo/registry/... with the username) are removed
+# by `--remap-path-prefix=$HOME=~` in RUSTFLAGS - set in make-app.sh and in the BUILD_WINDOWS.md commands,
+# because that needs $HOME expanded at build time (Cargo's `trim-paths` isn't stable in all our toolchains).
+[profile.release]
+strip = true
