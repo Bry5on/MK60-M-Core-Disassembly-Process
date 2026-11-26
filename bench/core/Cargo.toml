@@ -1,0 +1,17 @@
+[package]
+name = "e46-mk60-tool-core"
+version = "0.1.0"
+edition = "2021"
+description = "Reusable E46 MK60 Tool logic — Gauge.S serial bridge, CCP dump, KWP arm, CRO/DTO probe. Shared by the CLI and GUI front ends."
+
+[dependencies]
+serialport = "4"
+anyhow = "1"
+md-5 = "0.10"
+# CH341A USB programmer (direct 25LC040 read). Vendored libusb = no system libusb / brew needed.
+rusb = { version = "0.9", features = ["vendored"] }
+
+# Windows-only: read the FTDI VCP latency timer from the registry to warn when it isn't set to 1 ms (the
+# cable knock needs it). Pure-Rust (windows-sys under the hood); not built on macOS/Linux.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"

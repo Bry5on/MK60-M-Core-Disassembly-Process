@@ -1,0 +1,31 @@
+[package]
+name = "e46-mk60-tool-gui"
+version = "0.1.0"
+edition = "2021"
+
+# Desktop UI for the bench tool: a thin egui front end over e46-mk60-tool-core — the same
+# bridge / ops / ccp / kwp the CLI uses. Each action runs on a worker thread and streams
+# progress/log/CAN events back to the UI over a channel. No simulated logic.
+
+# Release builds are distributed, so strip symbol/debug tables. The absolute source paths rustc bakes into
+# panic strings (incl. ~/.cargo/registry/... with the username) are removed by `--remap-path-prefix=$HOME=~`
+# in RUSTFLAGS (set by make-app.sh / BUILD_WINDOWS.md - it needs $HOME expanded at build time). Without that,
+# `strings` on the shipped .exe reveals the username.
+[profile.release]
+strip = true
+
+[dependencies]
+e46-mk60-tool-core = { path = "../core" }
+eframe = "0.29"  # glow (OpenGL) renderer by default - used on macOS, Linux, and x64 Windows
+rfd = "0.15"   # cross-platform native file dialogs (macOS/Windows/Linux, one API)
+anyhow = "1"
+# Firmware provisioning (flash/backup/restore). Pure-Rust esptool equivalent; library only.
+espflash = { version = "4.7", default-features = false, features = ["serialport"] }
+serialport = "4"  # port enumeration + opening for the flasher
+sha2 = "0.10"  # fingerprint backups
+
+# ARM64 Windows has no hardware OpenGL, so add the wgpu (Direct3D 12) renderer there only. This stacks the
+# "wgpu" feature on top of eframe's defaults for this target alone; main() selects it at runtime. Every other
+# target builds glow-only exactly as before.
+[target.'cfg(all(target_os = "windows", target_arch = "aarch64"))'.dependencies]
+eframe = { version = "0.29", features = ["wgpu"] }

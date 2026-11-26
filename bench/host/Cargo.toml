@@ -1,0 +1,10 @@
+[package]
+name = "e46-mk60-tool"
+version = "0.1.0"
+edition = "2021"
+description = "E46 MK60 Tool — arms the CCP slave over K-line and dumps memory over CAN, through a Gauge.S USB bridge"
+
+[dependencies]
+e46-mk60-tool-core = { path = "../core" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
