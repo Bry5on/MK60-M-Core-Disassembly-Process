@@ -59,6 +59,7 @@ enum Action {
     AdcRead,
     MfgMmioRead,
     MfgMmioSweep,
+    MfgMmioSweepElevated,
     MfgEndSession,
     MfgDump,
     DumpNvm,
@@ -191,6 +192,13 @@ struct App {
     mmio_sweep_end: String,   // mfg mmio-sweep: last address (hex, inclusive)
     mmio_sweep_step: String,  // mfg mmio-sweep: address stride (hex; blank = width)
     mmio_sweep_fast: bool,    // mfg mmio-sweep: fast 0xA4 byte read (no exec stub), byte-width only
+    // Elevated MMIO sweep (10A1 supervisor gate before each ld). Separate controls so the plain sweep stays
+    // untouched; presets are CANDIDATES only (D00000/F60000 already ruled out on 818.3 after elevate).
+    elev_sweep_start: String,
+    elev_sweep_end: String,
+    elev_sweep_step: String,  // blank/0 => width (default halfword stride 2)
+    elev_sweep_width: u8,     // 1/2/4; halfword default
+    elev_mmio_addr: String,   // optional single elevated read address
     scan_ms: String, // duration (ms) for Sniff + Wake-decode
     nvm_restore_base: String, // base address for "Restore NVM from file"
     truncated_dump: bool, // Dump Binary: stop at the data top (skip the erased 0xFF tail) instead of the full window
@@ -261,6 +269,11 @@ impl Default for App {
             mmio_sweep_end: "0x00EF8F00".into(),
             mmio_sweep_step: "0x100".into(),
             mmio_sweep_fast: false,
+            elev_sweep_start: "0x00FF8000".into(),
+            elev_sweep_end: "0x00FF80FF".into(),
+            elev_sweep_step: "0x2".into(),
+            elev_sweep_width: 2,
+            elev_mmio_addr: "0x00FF8032".into(),
             scan_ms: "3000".into(),
             nvm_restore_base: "0x000".into(),
             truncated_dump: false,
@@ -1641,7 +1654,7 @@ impl eframe::App for App {
                 self.log(format!("mfg mmio-read: 0x{addr:08X} (w{width}) via exec stub. Read-only; one address."));
                 self.start(Action::MfgMmioRead, move |br, tx| {
                     let mut sink = |e: Event| { let _ = tx.send(Msg::Event(e)); };
-                    ops::mfg_mmio_read(br, 500, 10000, 40, 4, b'0', 4800, 1, auto_ign, addr, width, &mut sink)
+                    ops::mfg_mmio_read(br, 500, 10000, 40, 4, b'0', 4800, 1, auto_ign, addr, width, false, &mut sink)
                 });
             }
             // mfg mmio-sweep: read a RANGE of registers in ONE reused session (one knock) at the chosen width.
@@ -1659,7 +1672,7 @@ impl eframe::App for App {
                 self.log(format!("mfg mmio-sweep: 0x{start:08X}..=0x{end:08X} step 0x{step:X} (w{width}{}). One knock, reused per address.", if fast { ", fast 0xA4" } else { "" }));
                 self.start(Action::MfgMmioSweep, move |br, tx| {
                     let mut sink = |e: Event| { let _ = tx.send(Msg::Event(e)); };
-                    ops::mfg_mmio_sweep(br, 500, 10000, 40, 4, b'0', 4800, 1, auto_ign, start, end, step, width, fast, &mut sink)
+                    ops::mfg_mmio_sweep(br, 500, 10000, 40, 4, b'0', 4800, 1, auto_ign, start, end, step, width, fast, false, &mut sink)
                 });
             }
             // Session reuse: when checked, the ops leave the mfg session LIVE (KL15 on) instead of dropping it,
@@ -1688,6 +1701,74 @@ impl eframe::App for App {
                     self.start(Action::MfgEndSession, move |br, tx| {
                         let mut sink = |e: Event| { let _ = tx.send(Msg::Event(e)); };
                         ops::mfg_end_session(br, &mut sink)
+                    });
+                }
+            });
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Elevated MMIO sweep (10A1 supervisor)").strong().small())
+                .on_hover_text("Each probe injects mfcr r1,ss4 before a read-only load. Proven on 818.3 (PSR bit31 + 0x66). FAULT after elevate = wrong/protected map, not privilege. No flash program/erase.");
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("start").small().weak());
+                ui.add_enabled(idle_k, egui::TextEdit::singleline(&mut self.elev_sweep_start).desired_width(80.0).font(egui::TextStyle::Monospace))
+                    .on_hover_text("First address (hex, inclusive).");
+                ui.label(egui::RichText::new("end").small().weak());
+                ui.add_enabled(idle_k, egui::TextEdit::singleline(&mut self.elev_sweep_end).desired_width(80.0).font(egui::TextStyle::Monospace))
+                    .on_hover_text("Last address (hex, inclusive).");
+                ui.label(egui::RichText::new("step").small().weak());
+                ui.add_enabled(idle_k, egui::TextEdit::singleline(&mut self.elev_sweep_step).desired_width(48.0).font(egui::TextStyle::Monospace))
+                    .on_hover_text("Address stride (hex). Blank/0 uses the access width (halfword => 2).");
+                egui::ComboBox::from_id_salt("elev_width")
+                    .selected_text(match self.elev_sweep_width { 1 => "byte", 4 => "word", _ => "halfword" })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.elev_sweep_width, 2, "halfword");
+                        ui.selectable_value(&mut self.elev_sweep_width, 1, "byte");
+                        ui.selectable_value(&mut self.elev_sweep_width, 4, "word");
+                    });
+            });
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("presets (candidates only)").small().weak());
+                if ui.add_enabled(idle_k, egui::Button::new("UART window FF8000..FF80FF")).on_hover_text("Known user-readable MMIO on 818.3 - sanity check that elevated stubs still map here (e.g. FF8032=0x00D8).").clicked() {
+                    self.elev_sweep_start = "0x00FF8000".into();
+                    self.elev_sweep_end = "0x00FF80FF".into();
+                    self.elev_sweep_step = "0x2".into();
+                    self.elev_sweep_width = 2;
+                }
+                if ui.add_enabled(idle_k, egui::Button::new("EF8200..EF8500")).on_hover_text("Candidate-only: previously user-readable peripheral island. Not a claimed flash base.").clicked() {
+                    self.elev_sweep_start = "0x00EF8200".into();
+                    self.elev_sweep_end = "0x00EF8500".into();
+                    self.elev_sweep_step = "0x2".into();
+                    self.elev_sweep_width = 2;
+                }
+                if ui.add_enabled(idle_k, egui::Button::new("skip D00000/F60000")).on_hover_text("818.3: elevated reads of 0xD0001C and 0xF60000 already FAULTed - family-doc bases ruled out from mfg exec.").clicked() {
+                    self.log("elevated sweep: 0xD00000 and 0xF60000 already faulted after proven 10A1 elevate on 818.3 - not useful presets.");
+                }
+            });
+            if ui.add_enabled(idle_k, egui::Button::new("mfg elevated mmio-sweep (10A1, one knock)").min_size(big))
+                .on_hover_text("Read start..=end after mfcr r1,ss4 elevate, halfword by default, one exec per address, reused session. READ-ONLY. Hang => KL30, resume from next address.")
+                .clicked()
+            {
+                let start = parse_hex(&self.elev_sweep_start).unwrap_or(0x00FF_8000);
+                let end = parse_hex(&self.elev_sweep_end).unwrap_or(0x00FF_80FF);
+                let step = parse_hex(&self.elev_sweep_step).unwrap_or(0);
+                let width = self.elev_sweep_width;
+                self.log(format!("mfg elevated mmio-sweep: 0x{start:08X}..=0x{end:08X} step 0x{step:X} (w{width}, 10A1). Read-only."));
+                self.start(Action::MfgMmioSweepElevated, move |br, tx| {
+                    let mut sink = |e: Event| { let _ = tx.send(Msg::Event(e)); };
+                    ops::mfg_mmio_sweep(br, 500, 10000, 40, 4, b'0', 4800, 1, auto_ign, start, end, step, width, false, true, &mut sink)
+                });
+            }
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("one addr").small().weak());
+                ui.add_enabled(idle_k, egui::TextEdit::singleline(&mut self.elev_mmio_addr).desired_width(90.0).font(egui::TextStyle::Monospace));
+                if ui.add_enabled(idle_k, egui::Button::new("elevated mmio-read")).on_hover_text("Single elevated (10A1) read at the address / elev width. Read-only.").clicked() {
+                    let addr = parse_hex(&self.elev_mmio_addr).unwrap_or(0x00FF_8032);
+                    let width = self.elev_sweep_width;
+                    self.log(format!("mfg elevated mmio-read: 0x{addr:08X} (w{width}, 10A1). Read-only."));
+                    self.start(Action::MfgMmioRead, move |br, tx| {
+                        let mut sink = |e: Event| { let _ = tx.send(Msg::Event(e)); };
+                        ops::mfg_mmio_read(br, 500, 10000, 40, 4, b'0', 4800, 1, auto_ign, addr, width, true, &mut sink)
                     });
                 }
             });

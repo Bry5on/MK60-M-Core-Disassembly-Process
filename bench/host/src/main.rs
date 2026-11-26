@@ -118,6 +118,10 @@ enum Cmd {
         /// Pays off across ops in one process / the GUI; end it with `mfg-end-session`.
         #[arg(long)]
         keep_alive: bool,
+        /// Inject mfcr r1,ss4 (0x10A1) before the load so the 818.3 privilege gate elevates to supervisor.
+        /// Read-only; a FAULT after elevate means wrong/protected map, not a privilege wall.
+        #[arg(long, default_value_t = false)]
+        elevate: bool,
     },
     /// mfg end-session: close the K-line and drop KL15/the relay to power the module down after a keep-alive
     /// run.
@@ -126,6 +130,7 @@ enum Cmd {
     /// mfg mmio-sweep: read a RANGE of MMIO addresses (--start..=--end, stride --step) as --width reads in
     /// ONE reused session - one ignition knock for the whole range. One compact line per address + a mapped
     /// summary. Stops on a hang (KL30 to recover, resume from the next address). Hunts the flash controller.
+    /// Pass `--elevate` to inject mfcr r1,ss4 (0x10A1) before each read-only load (supervisor).
     #[command(name = "mfg-mmio-sweep")]
     MfgMmioSweep {
         /// First address (hex, inclusive).
@@ -144,6 +149,10 @@ enum Cmd {
         /// (forces --width 1) and an unreadable address just advances instead of hard-stopping.
         #[arg(long, default_value_t = false)]
         fast: bool,
+        /// Inject mfcr r1,ss4 (0x10A1) before each load (forces exec stub; disables --fast). Read-only.
+        /// FAULT after elevate = wrong/protected map. On 818.3, 0xD0001C and 0xF60000 already faulted this way.
+        #[arg(long, default_value_t = false)]
+        elevate: bool,
         #[arg(long, default_value_t = 500)]
         off_ms: u64,
         #[arg(long, default_value_t = 10000)]
@@ -239,15 +248,15 @@ fn main() -> Result<()> {
         Cmd::RelayOn => ops::relay_set(&mut br, true, &mut log)?,
         Cmd::RelayOff => ops::relay_set(&mut br, false, &mut log)?,
         Cmd::AdcRead => ops::adc_read(&mut br, &mut log)?,
-        Cmd::MfgMmioRead { addr, width, off_ms, threshold_mv, first_delay, attempts, keep_alive } => {
+        Cmd::MfgMmioRead { addr, width, off_ms, threshold_mv, first_delay, attempts, keep_alive, elevate } => {
             ops::set_keep_session_alive(keep_alive);
-            ops::mfg_mmio_read(&mut br, off_ms, threshold_mv, first_delay, attempts, b'0', 4800, 1, ext_edge, addr, width, &mut log)?
+            ops::mfg_mmio_read(&mut br, off_ms, threshold_mv, first_delay, attempts, b'0', 4800, 1, ext_edge, addr, width, elevate, &mut log)?
         }
         Cmd::MfgEndSession => {
             ops::mfg_end_session(&mut br, &mut log)?
         }
-        Cmd::MfgMmioSweep { start, end, step, width, fast, off_ms, threshold_mv, first_delay, attempts } => {
-            ops::mfg_mmio_sweep(&mut br, off_ms, threshold_mv, first_delay, attempts, b'0', 4800, 1, ext_edge, start, end, step, width, fast, &mut log)?
+        Cmd::MfgMmioSweep { start, end, step, width, fast, elevate, off_ms, threshold_mv, first_delay, attempts } => {
+            ops::mfg_mmio_sweep(&mut br, off_ms, threshold_mv, first_delay, attempts, b'0', 4800, 1, ext_edge, start, end, step, width, fast, elevate, &mut log)?
         }
         Cmd::MfgDump { addr, len, auto, ceiling, out, off_ms, threshold_mv, first_delay, attempts, auto_ign } => {
             let never = std::sync::atomic::AtomicBool::new(false);
