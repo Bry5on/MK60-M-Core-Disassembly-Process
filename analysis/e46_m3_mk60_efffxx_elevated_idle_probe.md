@@ -275,3 +275,49 @@ register roles are **[open]**.
 Import `818.3.bin` (md5 `7febd4b26eab79154411efc96c035b11`) as MCORE:BE:32 base
 `0x0`; disassemble `0x00014EC0`; the pointer tables at `0x00015000` and
 `0x00014EE0` resolve the EFFFxx targets. No live module access required.
+
+## EFFF06 arm-writer — resolved [C]
+
+Follow-up static search (MG-92) for the store that arms EFFF06. Searched, in the
+same fresh MCORE:BE:32 import of the **E46 MK60 818.3 (M3)** image:
+
+- All references (any type) to `0x00EFFF06` and `0x00EFFF07`.
+- All stores to the entry-sequence aux registers `0x00EFFB00`, `0x00EFFF02`,
+  `0x00EFFA00`.
+- Every in-flash pool word equal to those register addresses, plus each `lrw`
+  user of those pool words (to catch pointer-indirected stores), and the 1-hop
+  callers of every writer.
+
+**Result: `EFFF06`/`EFFF07` are only ever READ — there is no store to `EFFF06`
+anywhere in the image, and `0xA4` is never written to it.** The three EFFF06 read
+sites are `0x00014EF2` and `0x00015422` (both inside `nvm_driver_14EC0`) and
+`0x0003C748` (the separate `FUN_0003c730` accessor). `0xA4` is therefore a
+**hardware-produced "armed/ready" state** that EFFF06 reads back — not a firmware
+store.
+
+**Arming is a side effect of the aux-register writes at the driver entry.** Every
+store to the aux arm registers is inside `nvm_driver_14EC0` @ `0x00014EC0`
+(the `(none)`-function store sites `0x14F06`/`0x14EFE` are this driver's own
+un-named middle block; no separate arm routine exists). Evidenced sequence and
+exact values:
+
+| Site | Register (via pool) | Value written |
+|---|---|---|
+| `0x14ED4` | `EFFB00` (`[0x14EEC]`) | `0x02` |
+| `0x14ED6` | `EFFB00` (`[0x14EEC]`) | `0x10` if caller-word bit10 == 0, else `0x00` (`((w>>10 & 1)!=1)<<4`) |
+| `0x14EDC` | `EFFF02` (`[0x14EE8]`) | `0x10` |
+| `0x14EFE` | `EFFA00` (`[0x14F10]`) | RMW `&= 0xFF7F` (clear bit7) — only if `*EFFF06` bit2 == 0 |
+| `0x14F06` | `EFFB00` (`[0x14F14]`) | RMW `&= 0xFF7F` (clear bit7) — only if `*EFFF06` bit2 == 0 |
+
+So: the driver pokes `EFFB00` (`0x02` then `0x10`/`0x00`) and `EFFF02` (`0x10`),
+conditionally clears bit7 of `EFFA00`/`EFFB00`, then **reads** `EFFF06` and treats
+`0xA4` as the armed/ready state (and gates success on `*EFFF06 != 0xA4`). These
+aux registers sit in the same on-chip register file just below EFFFxx
+(`EFFA00`/`EFFB00`) but are **outside** the live idle probe's `EFFF00..EFFF5E`
+range, so they were not read on the bench.
+
+**Still [open]:** the precise bit-level semantics of `EFFB00`/`EFFF02`/`EFFA00`
+(which bit = enable HV / clock / arm) — the write values are evidenced, the
+silicon meaning is not. But the question "is `0xA4` ever written directly?" is
+answered: **no — it is read-only to the firmware; arming comes via the
+`EFFB00`/`EFFF02` side effects above.**
