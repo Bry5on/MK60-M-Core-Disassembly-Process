@@ -235,6 +235,52 @@ outside the live idle probe's `EFFF00..EFFF5E` range, so they were not read on t
 bench. Their bit-level meaning (enable HV / clock / arm) is **[open]** — the write
 values are evidenced, the silicon semantics are not.
 
+## Live arm-check probe (bench, 2026-11-27) — aux-writes alone do NOT arm **[C]**
+
+A read-only exec stub was run on the **E46 MK60 818.3 (M3)** bench module (14er)
+to test the hypothesis above: do the reset-path aux-register pre-arm writes
+(`EFFB00 <- 0x02`, `EFFB00 <- 0x10/0x00`, `EFFF02 <- 0x10`, plus the conditional
+`EFFA00`/`EFFB00` bit7 clears) **alone** move the EFFFxx gate toward armed, from
+inside our 10A1 / level-3 mfg session, **without** touching the `EFFF18` command
+port or the `EFFF40` data port and **without** any erase/program command. The stub
+elevated (`10A1`), snapshotted the registers, replicated only those pre-arm writes,
+re-read the gate, then restored `EFFF02`/`EFFB00`/`EFFA00` from the snapshot.
+
+Scratch result block at `0x00401400` (22 bytes, big-endian halfwords):
+
+```
+55 00 00 00 A8 A6 FB 00 00 00 11 00 00 00 A8 A6 FB 00 A8 A6 66 00
+```
+
+| Offset | Field | Value |
+|---|---|---|
+| +0x00 | ran sentinel | `0x55` (+ `00 00 00`) |
+| +0x04 | EFFF06 BEFORE | `0xA8A6` |
+| +0x06 | EFFF1A BEFORE | `0xFB00` |
+| +0x08 | EFFB00 BEFORE | `0x0000` |
+| +0x0A | EFFF02 BEFORE | `0x1100` |
+| +0x0C | EFFA00 BEFORE | `0x0000` |
+| +0x0E | **EFFF06 AFTER** | **`0xA8A6`** |
+| +0x10 | EFFF1A AFTER | `0xFB00` |
+| +0x12 | EFFF06 AFTER (re-read) | `0xA8A6` |
+| +0x14 | returned sentinel | `0x66` (+ `00`) |
+
+**Result — confirmed NEGATIVE.** The stub executed and returned cleanly
+(`0x55` at +0x00, `0x66` at +0x14). `EFFF06` after the pre-arm writes read
+**`0xA8A6`** — the idle/not-armed value — identical to the BEFORE snapshot and
+**stable across the bounded re-read** (+0x0E and +0x12 both `0xA8A6`, not `0xA4xx`).
+`EFFF1A` stayed `0xFB00` (status unchanged). `EFFB00`/`EFFA00` read back `0x0000`
+and `EFFF02` read `0x1100`, matching the idle map.
+
+**Conclusion [C]:** the reset-path aux-register writes (`EFFB00`/`EFFF02` + the
+conditional bit7 clears) **do not by themselves arm the EFFFxx controller** from
+inside the live mfg session — the gate does not move to `0xA4`. Arming therefore
+requires more than the aux pre-writes: the **`EFFF18` command + strobe sequence**
+(the command-field / region / bit6-initiate RMW decoded below), and/or a
+power-on-only hardware condition that the reset path satisfies but a post-boot
+session does not, is implicated. This is a live bench fact; the EFFF18 bit
+semantics remain **[open]** (see below).
+
 ## EFFF18 (command) — bitfield RMW, no single opcode **[C]**
 
 No literal "command word" is written. The reset code assembles EFFF18 by
