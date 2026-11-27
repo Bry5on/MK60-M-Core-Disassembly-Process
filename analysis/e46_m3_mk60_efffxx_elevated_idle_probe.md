@@ -110,17 +110,23 @@ command opcodes or the required arm / unlock order. Those must come from the
 disassembly (the routine that writes these registers) or a silicon doc — not from
 guessing on the bench.
 
-Note: earlier notes place the MMC2114-family SGFM base at `0x00D00000` from the
-public MMC2114/D Rev.1 manual. This probe is of the live **EFFFxx** block on the
-SC550080-class part in the 818.3 (M3) module. Relationship between `0xD00000` and
-EFFFxx on this silicon is still **[open]**; do not treat them as proven aliases
-from this note alone.
+**Live base is EFFFxx — settled [C].** This probe proves the on-chip flash/NVM
+controller the 818.3 (M3) actually exposes under supervisor is at EFFFxx (BKSEL
+`0x3F02`×4, status `0xFB00`, gate `0xA8`, data port EFFF40/42). For programming,
+drive EFFFxx.
+
+Earlier notes place the MMC2114-family SGFM base at `0x00D00000` from the public
+MMC2114/D Rev.1 manual. Whether this SC550080-class part *also* decodes
+`0xD00000` as an alias/mirror of EFFFxx is a soft leftover and does not change
+the live programming target.
 
 ## Open
 
 - [ ] Recover exact EFFF18 command values and EFFF06 arm sequence from the image
       (paper only; no live write).
-- [ ] Relationship of EFFFxx to the MMC2114 SGFM base `0x00D00000` on this part.
+- [x] Live flash/NVM controller base on this module — **EFFFxx** (settled by this
+      probe). Soft leftover only: whether `0x00D00000` is also decoded as an
+      alias/mirror (does not change the programming target).
 - [ ] Whether a program must also write the ECC window at `0x00100000+`.
 - [ ] Meaning of the populated config words `EFFF00/02/04/08/0C/0E` and the
       `EFFF20`..`EFFF2A` run — logged, not assigned.
