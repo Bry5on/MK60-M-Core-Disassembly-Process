@@ -309,6 +309,15 @@ of the EFFF18/1A/40 controller is **[open]** — a boot-time config operation is
 evidenced; whether other code (not in this 256 KiB image) drives the controller
 differently is unknown.
 
+**Update — mfg exec handler located (2026-11-27).** The manufacturing A4/A5/A6 handler
+*is* in-image (exec handler `FUN_0001be28` @ `0x0001BE28`, found by a read-only bench
+`r15` capture — see `analysis/e46_m3_mk60_mfg_exec_handler.md`). It has **no native
+program/erase sub-command** and no EFFFxx references in `0x1B000..0x1D000`; its only
+write primitive is a single `st.b`/`st.h`/`st.w` (A4 `R` / A5 `T`) to a caller-supplied
+address. Code-flash programming would require **uploaded M·CORE code run via the A6
+`K`/`L`/`O` descriptor path**, not a built-in opcode. The "not found in the 818.3
+image" conclusion here therefore stands: no in-image code-flash programmer exists.
+
 ## Open items
 
 - [ ] Bit-level semantics of EFFF18 fields (`0x40`/`0x100`/`0x10`/`0x0700`/`0x7000`)
