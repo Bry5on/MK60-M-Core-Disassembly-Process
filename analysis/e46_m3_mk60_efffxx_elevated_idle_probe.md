@@ -141,6 +141,16 @@ live elevated halfword reads on the **E46 MK60 818.3 (M3)** bench module on
 
 # Write-path findings — static analysis (2026-11-27)
 
+> **Correction (2026-11-27).** An earlier version of this section framed `0x14EC0`
+> as a RAM-copied "NVM program/erase driver." That framing was wrong. Thanks to
+> **Heinz Boehmer's reconciliation analysis** of the same 818.3 image, the identity
+> is corrected below: `0x14EC0` is **mid-body of the reset handler** (the reset
+> vector, word@`0x0`, points to `0x00014E60`), it **runs in place from flash once
+> per boot**, the EFFF40 data is a **fixed in-image table value** (not caller data),
+> and the EFFF18 low-field mask is **`0x0700`** (bits 8–10), not `0x07`. The
+> register-write facts still hold; their *context* is the reset path, and no
+> code-flash programming path was found in this image.
+
 **Paper only.** Recovered by static disassembly of the **E46 MK60 818.3 (M3)**
 flash image (`818.3.bin`, 256 KiB, md5 `7febd4b26eab79154411efc96c035b11`,
 MCORE:BE:32, base `0x0`). Nothing was sent to the module; no program/erase was
@@ -149,175 +159,172 @@ performed. Addresses below are image offsets.
 Confidence: **[C]** directly evidenced in the disassembly/decompile; **[I]**
 interpretation; **[open]** not established.
 
-## The NVM program/erase driver — `nvm_driver_14EC0` @ `0x00014EC0` **[C]**
+## Identity: reset-path EFFFxx init at `0x00014EC0` **[C]**
 
-This is the routine that drives EFFFxx. It reaches the controller indirectly
-through two pointer tables held in flash, which is why a naive decompile shows
-RAM-style symbols (`puRam000150xx`) instead of EFFFxx — the pointers resolve to
-the live registers:
+`0x14EC0` is **not a function entry and not a RAM-copied driver**. The reset vector
+(word@`0x0`) = `0x00014E60`. Disassembling from `0x14E60` gives a single contiguous
+reset handler that zeroes the GPRs, sets the stack (`lrw r7,0x15214`), clears the
+supervisor-save registers `SS0..SS4`, then at `0x14EBE` does `lrw r7,0x14ee0`
+(= `0x00EFFF00`) and **falls straight through into `0x14EC0`**. So the EFFFxx code
+below is part of the reset handler and runs **in place from flash, once per boot**.
+
+Confirming evidence: image scan finds `0x00014EC0` **0 times** as a pointer word,
+`0x00014E60` **once** (the reset vector), and there is **no memcpy of the
+`0x14E60` region** anywhere. There is no RAM copy and no runtime caller — the
+"no static caller" is simply because `0x14EC0` is interior to `reset_14E60`.
+
+## Register pointer tables **[C]**
 
 Register pointer table @ `0x00015000`:
 
 | Pool word | Value | Register |
 |---|---|---|
-| `0x15000` | `0x00EFFF06` | gate / arm (read) |
+| `0x15000` | `0x00EFFF06` | gate (read/tested) |
 | `0x15004` | `0x00EFFF18` | command (RMW target) |
 | `0x15008` | `0x00EFFF1A` | status (polled) |
-| `0x1500C` | `0x00EFFF40` | data port (word staging) |
+| `0x1500C` | `0x00EFFF40` | data port |
 
 Second pointer/const table @ `0x00014EE0` and config block @ `0x00015010`:
 
 | Pool word | Value | Role |
 |---|---|---|
-| `0x14EE0` | `0x00EFFF00` | config reg (ptr present) |
-| `0x14EE4` | `0x0000BFFF` | mask applied to caller word |
-| `0x14EE8` | `0x00EFFF02` | config reg; driver writes byte `0x10` |
-| `0x14EEC` | `0x00EFFB00` | aux reg; driver writes `0x02` then `0x10`/`0x00` |
+| `0x14EE0` | `0x00EFFF00` | config reg (read, `& 0xBFFF`, written back; bit10 tested) |
+| `0x14EE4` | `0x0000BFFF` | mask applied to the EFFF00 word |
+| `0x14EE8` | `0x00EFFF02` | config reg; reset code writes byte `0x10` |
+| `0x14EEC` | `0x00EFFB00` | aux reg; reset code writes `0x02` then `0x10`/`0x00` |
 | `0x14F10` | `0x00EFFA00` | aux reg; conditional clear of bit7 |
 | `0x14F14` | `0x00EFFB00` | aux reg; conditional clear of bit7 |
 | `0x15010` | `0x000000A4` | **armed/ready gate value** compared vs `*EFFF06` |
 | `0x15014` | `0x00007000` | address/region field mask (bits 12–14) into EFFF18 |
-| `0x15018` | `0x00000007` | low command-bit mask (bits 0–2) into EFFF18 |
+| `0x15018` | `0x00000700` | **command-field mask (bits 8–10)** into EFFF18 (was mis-read as `0x07`) |
 | `0x1501C` | `0x000088FF` | preserve mask on EFFF18 RMW |
 | `0x15020` | `0x00000100` | bit8 strobe constant |
-| `0x15024` | `0x00000100` | branch-select mask on a config word |
+| `0x15024` | `0x00000100` | branch-select mask on the config word |
+| `0x15294` | `0x0003DA7C` | ptr to config word `cfgA` (`[0x3DA7C] = 0x00002100`) |
+| `0x15298` | `0x0003DA78` | ptr to config word `cfgB` (`[0x3DA78] = 0x00000101`) |
+| `0x1529C` | `0x00015028` | base of the **fixed in-image data table** (24 halfwords) |
 | `0x15454` | `0x00EFFF06` | gate re-read at routine exit |
 | `0x15458` | `0x00015D5C` | sub called at exit (`COMPUTED_CALL` from `0x15410`) |
 
-## EFFF06 (gate / arm) — evidenced values **[C]**
+Both config words are **fixed in-image constants**: `cfgA = 0x00002100` (`@0x3DA7C`),
+`cfgB = 0x00000101` (`@0x3DA78`). There is no caller-supplied input.
 
-- The driver **reads** `*EFFF06` and compares it to **`0xA4`** (`0x15010`) as the
-  "armed/ready" condition (`bVar16 = (0xA4 == *EFFF06)`), and gates its success
-  return on `*EFFF06 != 0xA4` (encoded as the signed byte `-0x5c`).
-- EFFF06 is **not written** inside this routine — it is read/tested only. Live
-  idle reads `0xA8`; the code's meaningful armed value is **`0xA4`** (matches the
-  earlier bench prediction, now with static evidence).
-- The actual arming write target is **[open]**: candidates are the aux registers
-  this routine pokes at entry — `EFFB00` (`0x02` then `0x10`/`0x00`), `EFFF02`
-  (`0x10`), `EFFA00` — not EFFF06 directly.
+## EFFF06 (gate) — read-only; `0xA4` never written **[C]**
 
-## EFFF18 (command) — there is no single opcode; it is a bitfield RMW **[C]**
+- The reset code **reads** `*EFFF06` and compares it to **`0xA4`** (`0x15010`) as the
+  "armed/ready" condition (`0xA4 == *EFFF06`), and gates its success return on
+  `*EFFF06 != 0xA4` (the signed byte `-0x5c`).
+- **`EFFF06`/`EFFF07` are only ever READ — there is no store to `EFFF06` anywhere in
+  the image, and `0xA4` is never written to it.** `0xA4` is a hardware-produced
+  "armed/ready" state the gate reads back. Live idle reads `0xA8`.
+- Arming is a **side effect of the aux-register writes in the reset path** (below),
+  not a direct write to EFFF06.
 
-No literal "command word" is written to EFFF18. The command is **assembled by
-read-modify-write with bit strobes**, polling EFFF1A between steps. The evidenced
-sequence (in order):
-
-1. `v = (*EFFF18 & 0x88FF) | (0x07 & cfgA)` → write EFFF18  (seed: preserve
-   `0x88FF`, set low command bits 0–2 from a config word `cfgA`).
-2. `v &= 0xFFEC` → write EFFF18  (clear bits 0,1,4).
-3. `v |= 0x40` → write EFFF18  (set **bit6** = enable/initiate).
-4. `v |= (0x7000 & cfgA)` → write EFFF18  (set **bits12–14** address/region field).
-5. **poll** `while ((*EFFF1A >> 3 & 1) != 1)`  (wait status **bit3** = ready).
-6. `v -= 0x100` → write EFFF18  (clear **bit8** strobe).
-7. Stage data: `*EFFF40 = tableWord[(cfgB & 3)*8 - 8 + (cfgA >> 12)]`  (data port
-   load, indexed by bank `cfgB&3` and region `cfgA>>12`).
-8. Per-word program loop: `*EFFF18 = v & ~3` → poll bit3 → `v = (v & ~3) ^ 0x10 |
-   (cfgB & 3)` (toggle **bit4** program strobe + bank bits) → poll **bit1** → `v
-   ^= 0x10` (drop bit4) → poll bit3 → **done when status bits 0 AND 1 are both
-   set**; else repeat.
-9. Exit: `*EFFF18 = v - 0x100`, write `0x07` to `*0x15400` (RAM flag), call
-   `0x15D5C`, then re-read `*EFFF06`.
-
-So the controlling EFFF18 bits are, evidenced: **bit6 (0x40)** initiate,
-**bit8 (0x100)** HV/sequence strobe (added/subtracted), **bit4 (0x10)** per-word
-program-pulse strobe, **bits0–1 (0x03)** bank, **bits0–2 (0x07)** low command
-field, **bits12–14 (0x7000)** address/region; preserve mask **0x88FF**.
-The exact ERASE-vs-PROGRAM meaning of each bit is **[open]** without a silicon
-doc, but the bit positions and strobe order above are directly from the image.
-
-## EFFF1A (status) polling **[C]**
-
-Polled bits: **bit3** = ready/handshake (gates each step), **bit1** = pulse-done,
-**bit0 & bit1 together** = word complete/success. (Live idle `0xFB00`.)
-
-## EFFF40/42 (data port) **[C]**
-
-`EFFF40` is loaded via `*0x1500C` with a staged word from an in-flash table,
-indexed by bank and region — matches the bench finding that EFFF40/42 is a
-latched data-staging register, not a FIFO.
-
-## Bank select EFFF10/12/14/16 **[open]/[I]**
-
-The program driver does **not** write EFFF10–16 directly; bank is carried inside
-EFFF18 (`0x03` / `0x7000` fields) and the EFFF40 staging index. Whether
-EFFF10–16 (`0x3F02`×4 at idle) are programmed by a separate setup routine is
-**[open]**.
-
-## Callers / invocation **[open]**
-
-There is **no static caller, and no pointer word `0x00014EC0` anywhere in the
-image**. The routine is almost certainly **relocated/copied to RAM and executed
-there** — standard for a flash programmer on this MMC2114-class part (you cannot
-execute from flash while erasing/programming it). The on-chip trigger path is
-therefore not statically resolvable from the flash image alone. The only resolved
-edge is the internal `COMPUTED_CALL` at `0x15410 → 0x15D5C`.
-
-## Separate EFFFxx accessor cluster (not the program path) **[I]**
-
-Functions `FUN_0003c118 / c1ac / c21c / c278 / c31c / c374 / c3f4 / c674 / c730`
-near `0x0003C1xx–0x0003C7xx` read/write **EFFF00, EFFF21, EFFF2B, EFFF3D, EFFF3F**
-(byte RMW) and read **EFFF06/07**. These look like a distinct peripheral/config
-accessor group, **separate** from the `0x14EC0` program/erase driver; their
-register roles are **[open]**.
-
-## Updated open items
-
-- [ ] Identify the register that actually **writes** the arm value so `*EFFF06`
-      becomes `0xA4` (candidates EFFB00 / EFFF02 / EFFA00). **[open]**
-- [ ] Map EFFF18 bits (0x40/0x100/0x10/0x07/0x7000) to ERASE vs PROGRAM vs
-      verify — needs silicon doc; positions are evidenced, semantics **[open]**.
-- [ ] Confirm the RAM-relocation/invocation path for `nvm_driver_14EC0`. **[open]**
-- [ ] Whether EFFF10–16 BKSEL is programmed by a separate setup routine. **[open]**
-- [ ] Roles of the `0x3C1xx–0x3C7xx` EFFFxx accessor cluster. **[open]**
-
-### Reproduction (static, read-only)
-
-Import `818.3.bin` (md5 `7febd4b26eab79154411efc96c035b11`) as MCORE:BE:32 base
-`0x0`; disassemble `0x00014EC0`; the pointer tables at `0x00015000` and
-`0x00014EE0` resolve the EFFFxx targets. No live module access required.
-
-## EFFF06 arm-writer — resolved [C]
-
-Follow-up static search (MG-92) for the store that arms EFFF06. Searched, in the
-same fresh MCORE:BE:32 import of the **E46 MK60 818.3 (M3)** image:
-
-- All references (any type) to `0x00EFFF06` and `0x00EFFF07`.
-- All stores to the entry-sequence aux registers `0x00EFFB00`, `0x00EFFF02`,
-  `0x00EFFA00`.
-- Every in-flash pool word equal to those register addresses, plus each `lrw`
-  user of those pool words (to catch pointer-indirected stores), and the 1-hop
-  callers of every writer.
-
-**Result: `EFFF06`/`EFFF07` are only ever READ — there is no store to `EFFF06`
-anywhere in the image, and `0xA4` is never written to it.** The three EFFF06 read
-sites are `0x00014EF2` and `0x00015422` (both inside `nvm_driver_14EC0`) and
-`0x0003C748` (the separate `FUN_0003c730` accessor). `0xA4` is therefore a
-**hardware-produced "armed/ready" state** that EFFF06 reads back — not a firmware
-store.
-
-**Arming is a side effect of the aux-register writes at the driver entry.** Every
-store to the aux arm registers is inside `nvm_driver_14EC0` @ `0x00014EC0`
-(the `(none)`-function store sites `0x14F06`/`0x14EFE` are this driver's own
-un-named middle block; no separate arm routine exists). Evidenced sequence and
-exact values:
+### Aux-register arm writes (in the reset path) **[C]**
 
 | Site | Register (via pool) | Value written |
 |---|---|---|
 | `0x14ED4` | `EFFB00` (`[0x14EEC]`) | `0x02` |
-| `0x14ED6` | `EFFB00` (`[0x14EEC]`) | `0x10` if caller-word bit10 == 0, else `0x00` (`((w>>10 & 1)!=1)<<4`) |
+| `0x14ED6` | `EFFB00` (`[0x14EEC]`) | `0x10` if EFFF00 bit10 == 0, else `0x00` (`((w>>10 & 1)!=1)<<4`) |
 | `0x14EDC` | `EFFF02` (`[0x14EE8]`) | `0x10` |
 | `0x14EFE` | `EFFA00` (`[0x14F10]`) | RMW `&= 0xFF7F` (clear bit7) — only if `*EFFF06` bit2 == 0 |
 | `0x14F06` | `EFFB00` (`[0x14F14]`) | RMW `&= 0xFF7F` (clear bit7) — only if `*EFFF06` bit2 == 0 |
 
-So: the driver pokes `EFFB00` (`0x02` then `0x10`/`0x00`) and `EFFF02` (`0x10`),
-conditionally clears bit7 of `EFFA00`/`EFFB00`, then **reads** `EFFF06` and treats
-`0xA4` as the armed/ready state (and gates success on `*EFFF06 != 0xA4`). These
-aux registers sit in the same on-chip register file just below EFFFxx
-(`EFFA00`/`EFFB00`) but are **outside** the live idle probe's `EFFF00..EFFF5E`
-range, so they were not read on the bench.
+`EFFA00`/`EFFB00` sit in the same on-chip register file just below EFFFxx and are
+outside the live idle probe's `EFFF00..EFFF5E` range, so they were not read on the
+bench. Their bit-level meaning (enable HV / clock / arm) is **[open]** — the write
+values are evidenced, the silicon semantics are not.
 
-**Still [open]:** the precise bit-level semantics of `EFFB00`/`EFFF02`/`EFFA00`
-(which bit = enable HV / clock / arm) — the write values are evidenced, the
-silicon meaning is not. But the question "is `0xA4` ever written directly?" is
-answered: **no — it is read-only to the firmware; arming comes via the
-`EFFB00`/`EFFF02` side effects above.**
+## EFFF18 (command) — bitfield RMW, no single opcode **[C]**
+
+No literal "command word" is written. The reset code assembles EFFF18 by
+read-modify-write with bit strobes, polling EFFF1A between steps, using the fixed
+config words `cfgA = 0x2100` and `cfgB = 0x0101`:
+
+1. `v = (*EFFF18 & 0x88FF) | (0x0700 & cfgA)` → write EFFF18  (preserve `0x88FF`;
+   set command bits 8–10 from `cfgA`; `0x2100 & 0x0700 = 0x0100`).
+2. `v &= 0xFFEC` → write EFFF18  (clear bits 0,1,4).
+3. `v |= 0x40` → write EFFF18  (set **bit6**).
+4. `v |= (0x7000 & cfgA)` → write EFFF18  (set **bits12–14** region; `0x2100 & 0x7000 = 0x2000`).
+5. **poll** `while ((*EFFF1A >> 3 & 1) != 1)`  (wait status **bit3** = ready).
+6. `v -= 0x100` → write EFFF18  (clear **bit8** strobe).
+7. Stage data: `*EFFF40 = table[(cfgB & 3)*8 - 8 + (cfgA >> 12)]`. With the fixed
+   config this resolves to index `2` → the halfword **`0x004D` at `0x1502C`**
+   (table base `0x15028`). **A fixed in-image table value is staged — not caller
+   data, and no target address is written anywhere.**
+8. Per-word loop: `*EFFF18 = v & ~3` → poll bit3 → `v = (v & ~3) ^ 0x10 | (cfgB & 3)`
+   (toggle **bit4** + bank bits) → poll **bit1** → `v ^= 0x10` → poll bit3 → done
+   when status **bits 0 AND 1** are both set; else repeat.
+9. Exit: `*EFFF18 = v - 0x100`, write `0x07` to a RAM flag (`*0x15400`), call
+   `0x15D5C`, then re-read `*EFFF06`.
+
+Controlling EFFF18 bits (positions evidenced): **bit6 (0x40)**, **bit8 (0x100)**
+strobe, **bit4 (0x10)** per-word strobe, **bits0–1 (0x03)** bank, **bits8–10
+(0x0700)** command field, **bits12–14 (0x7000)** region; preserve mask **0x88FF**.
+The ERASE-vs-PROGRAM-vs-config meaning of each bit is **[open]** without a silicon
+doc.
+
+## EFFF1A (status) polling **[C]**
+
+Polled bits: **bit3** = ready/handshake (gates each step), **bit1** = pulse-done,
+**bits 0 & 1 together** = word complete. (Live idle `0xFB00`.)
+
+## EFFF40 (data port) **[C]**
+
+Loaded via `*0x1500C` with a **fixed halfword from the in-image table at `0x15028`**
+(resolved value `0x004D` @ `0x1502C`). It is not a caller data word and carries no
+target address. Consistent with the bench finding that EFFF40/42 is a latched
+staging register (not a FIFO).
+
+## Bank select EFFF10/12/14/16 **[open]/[I]**
+
+The reset code does not write EFFF10–16 directly; bank/region is carried inside
+EFFF18 (`0x03` / `0x7000` fields) and the EFFF40 table index. Whether EFFF10–16
+(`0x3F02`×4 at idle) are set by separate code is **[open]**.
+
+## Separate runtime EFFFxx accessor cluster **[I]**
+
+Functions near `0x0003C1xx–0x0003C7xx` (`FUN_0003c118/c1ac/c21c/c278/c31c/c374/c3f4/
+c674/c730`) read/write **EFFF00, EFFF21, EFFF2B, EFFF3D, EFFF3F** (byte RMW) and read
+**EFFF06/07**, alongside QSPI `0xFFFA00` and `0xEF830C`. This runtime group **never
+touches EFFF18/1A/40** (the command/status/data ports). Its register roles are
+**[open]**.
+
+## Code-flash programming path — not found in the 818.3 image **[open]**
+
+This section does **not** assert a secondary bootloader. What is evidenced:
+
+- The EFFF18/1A/40 command/status/data ports are driven **only** by the reset-path
+  code at `0x14EC0`, which runs once per boot with fixed in-image config — a
+  **boot-time controller configuration op**, not a runtime-callable programmer.
+- No KWP/UDS download dispatcher (RequestDownload `0x34`, TransferData `0x36`,
+  WriteMemoryByAddress `0x3D`, etc.) is evidenced in this image (constant-compare
+  candidates all decompile to ABS/DSC control arithmetic).
+- No constant-address self-write of the `0x0..0x3FFFF` flash region is evidenced.
+- No out-of-image code-pointer set (bootloader/shadow region) is evidenced; the
+  reset and exception vectors all point inside this image.
+
+So: **no code-flash programming path was found in the 818.3 image.** The full role
+of the EFFF18/1A/40 controller is **[open]** — a boot-time config operation is
+evidenced; whether other code (not in this 256 KiB image) drives the controller
+differently is unknown.
+
+## Open items
+
+- [ ] Bit-level semantics of EFFF18 fields (`0x40`/`0x100`/`0x10`/`0x0700`/`0x7000`)
+      and of the aux regs `EFFB00`/`EFFF02`/`EFFA00` — positions evidenced, meaning
+      **[open]** (needs silicon doc).
+- [ ] Purpose of the reset-path EFFFxx op (controller init vs ECC/shadow setup vs
+      NVM housekeeping). **[open]**
+- [ ] Whether EFFF10–16 BKSEL is set by separate code. **[open]**
+- [ ] Roles of the `0x3C1xx–0x3C7xx` runtime EFFFxx accessor cluster. **[open]**
+- [ ] Whether a code-flash programming path exists outside this 256 KiB image.
+      **[open]**
+
+### Reproduction (static, read-only)
+
+Import `818.3.bin` (md5 `7febd4b26eab79154411efc96c035b11`) as MCORE:BE:32 base
+`0x0`; disassemble from the reset vector (word@`0x0` = `0x00014E60`) and follow
+through to `0x14EC0`; the pointer tables at `0x00015000` and `0x00014EE0` resolve
+the EFFFxx targets, and `0x1529C → 0x15028` is the fixed data table. No live module
+access required.
