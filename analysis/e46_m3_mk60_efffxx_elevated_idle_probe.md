@@ -116,17 +116,52 @@ controller the 818.3 (M3) actually exposes under supervisor is at EFFFxx (BKSEL
 drive EFFFxx.
 
 Earlier notes place the MMC2114-family SGFM base at `0x00D00000` from the public
-MMC2114/D Rev.1 manual. Whether this SC550080-class part *also* decodes
-`0xD00000` as an alias/mirror of EFFFxx is a soft leftover and does not change
-the live programming target.
+MMC2114/D Rev.1 manual. A later live SS4-elevated read of that window (below)
+shows it does not respond as a live supervisor register on this module. That
+does not change the programming target: drive EFFFxx.
+
+## Live SGFMUSTAT probe (bench, 2026-11-27) — `0xD0001C` FAULTED **[C]**
+
+A read-only exec stub was run on the **E46 MK60 818.3 (M3)** bench module on
+2026-11-27 to test whether Heinz's claimed SGFM flash-controller window at
+`0x00D00000` is mapped under the same `10A1` (SS4) supervisor elevate that
+successfully reads EFFFxx. The stub elevated, halfword-read **SGFMUSTAT** at
+`0x00D0001C` into scratch `0x00401400` +0x04, then would have halfword-read
+**SGFMCMD** at `0x00D00020` into +0x06, then written the `0x66` returned
+sentinel at +0x08. No SGFM, flash, or EFFFxx register was written.
+
+Scratch result block at `0x00401400` (10 bytes):
+
+```
+55 00 00 00 00 00 00 00 00 00
+```
+
+| Offset | Field | Value |
+|---|---|---|
+| +0x00 | ran sentinel | `0x55` (+ `00 00 00`) |
+| +0x04 | SGFMUSTAT (`ld.h` `0xD0001C`) | `0x0000` (pre-clear; load did not complete) |
+| +0x06 | SGFMCMD (`ld.h` `0xD00020`) | `0x0000` (not reached) |
+| +0x08 | returned sentinel | `0x0000` — **`0x66` never landed** |
+
+**Result — confirmed NEGATIVE.** The stub started (`0x55` at +0x00) but the
+`0x66` sentinel never landed and +0x04 stayed `00 00`. The `ld.h` from
+`0xD0001C` (SGFMUSTAT) **FAULTED** under the same SS4 elevation that reads
+EFFFxx successfully. The planned SGFMCMD read was not reached.
+
+**Conclusion [C]:** SGFM `0x00D00000` does not respond as a live supervisor
+register on this 818.3 module. That argues against the SGFM flash path
+(`SGFMUSTAT` / `SGFMCMD` at `0xD0001C` / `0xD00020`) as the reachable
+on-chip controller, and supports **EFFFxx** as the controller this part
+actually exposes under supervisor.
 
 ## Open
 
 - [ ] Recover exact EFFF18 command values and EFFF06 arm sequence from the image
       (paper only; no live write).
-- [x] Live flash/NVM controller base on this module — **EFFFxx** (settled by this
-      probe). Soft leftover only: whether `0x00D00000` is also decoded as an
-      alias/mirror (does not change the programming target).
+- [x] Live flash/NVM controller base on this module — **EFFFxx** (settled by the
+      idle probe). SGFM `0x00D00000` / `SGFMUSTAT` `0xD0001C` **FAULTED** under
+      the same SS4 elevate (live bench, 2026-11-27; does not change the
+      programming target).
 - [ ] Whether a program must also write the ECC window at `0x00100000+`.
 - [ ] Meaning of the populated config words `EFFF00/02/04/08/0C/0E` and the
       `EFFF20`..`EFFF2A` run — logged, not assigned.
